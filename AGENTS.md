@@ -63,11 +63,17 @@ After completing a meaningful unit of change:
    ```
 4. Compose a Conventional-Commits style message:
    ```
-   <type>(<scope>): <imperative summary ≤72 chars>
+   <type>(<scope>): <what changed, imperative, ≤60 chars>
 
-   <body: why, not what, ≤5 bullets>
+   (optional body — only if non-obvious tradeoffs or rationale, ≤3 bullets)
    ```
    Types: `feat` / `fix` / `docs` / `chore` / `refactor` / `exp` / `data` / `eval`.
+
+   **Subject rules**:
+   - Describe **what was added/removed/fixed in terms of features or modules**, not project phases
+   - NEVER reference conversational context ("Step A/B/C", "as discussed", etc.) — future readers and collaborators won't have that context
+   - ≤60 chars so GitHub's commit list shows the full subject without truncation
+   - Body is optional; prefer NO body over a filler body
 5. `git commit` with the local identity.
 6. `git push origin main` (or the current branch).
 7. Report in chat: commit hash + one-line summary + remote URL.
