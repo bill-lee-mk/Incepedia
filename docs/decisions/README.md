@@ -29,3 +29,4 @@ Copy `TEMPLATE.md`, name it `NNNN-short-slug.md` where `NNNN` is the next 4-digi
 | [0003](./0003-multi-tier-generator-routing.md) | Multi-tier generator routing via OpenRouter | accepted |
 | [0004](./0004-evaluation-protocol-dual-track-adaptive.md) | Dual-track adaptive evaluation protocol | accepted |
 | [0005](./0005-project-scope-standalone-plus-seasoning.md) | Project scope — standalone corpus AND decay seasoning | accepted |
+| [0006](./0006-evaluation-stack-policy.md) | Evaluation stack policy — pin to lighteval latest | accepted |

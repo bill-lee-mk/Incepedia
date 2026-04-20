@@ -1,8 +1,13 @@
-"""Lighteval subprocess runner.
+"""Lighteval 0.13 subprocess runner.
 
-Wraps `accelerate launch lighteval/run_evals_accelerate.py` with a Python API
-and aggregates per-task scores into a single metrics.json compatible with
-INDEX.parquet (see scripts/index_experiment.py:SCHEMA_COLS).
+Wraps `accelerate launch` + `lighteval.main_accelerate.accelerate()` behind a Python
+API, normalising per-task scores into metrics.json for INDEX.parquet.
+
+Why we invoke Python programmatically instead of the `lighteval` CLI:
+    lighteval 0.13's typer-based CLI is currently broken (typer/click version
+    incompatibility). Calling `main_accelerate.accelerate()` from a tiny driver
+    script inside `accelerate launch` sidesteps the CLI entirely and is future-
+    proof if the CLI stabilises.
 
 Usage
 -----
@@ -10,27 +15,22 @@ Usage
 
     runner = EvalRunner(
         model="HuggingFaceTB/cosmo-1b",
-        output_dir="experiments/exp_ref_cosmopedia_v2/eval",
+        output_dir="experiments/exp_xxx/eval",
         task_group="early-signal",
         num_processes=8,
-        batch_size=16,
+        max_samples=500,  # smoke test; set None or large for full runs
     )
     scores = runner.run()
-    runner.write_metrics_json("experiments/exp_ref_cosmopedia_v2/metrics.json")
-
-Why a wrapper
--------------
-- Ensures we always run with the *exact same* task string cosmopedia used,
-  so scores are comparable to SmolLM / FineWeb published numbers.
-- Handles lighteval's output-dir layout, which varies slightly across versions.
-- Normalises task scores into the column names we maintain in INDEX.parquet.
+    runner.write_metrics_json("experiments/exp_xxx/metrics.json")
 """
 from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,7 +39,7 @@ from typing import Any
 from incepedia.config import REPO_ROOT
 from incepedia.eval.lighteval_tasks import TASKS_GROUPS
 
-# Map lighteval's task name → the column we use in INDEX.parquet.
+# Map lighteval task (core name) → column in INDEX.parquet.
 # Keep in sync with scripts/index_experiment.py:SCHEMA_COLS.
 _TASK_TO_COLUMN: dict[str, str] = {
     "hellaswag": "hellaswag",
@@ -57,40 +57,52 @@ _TASK_TO_COLUMN: dict[str, str] = {
     "gsm8k": "gsm8k_5shot",
 }
 
-# Which metric name inside a task's result dict to take as the canonical score.
-# lighteval tasks expose multiple metrics (acc, acc_norm, ...); we take acc_norm
-# when available (matches SmolLM / FineWeb reporting) else plain acc.
+# lighteval 0.13 exposes fewer per-metric variants; take the first numeric scalar
+# preferring the normalised accuracy when present.
 _METRIC_PREFERENCE = (
     "acc_norm_nospace",
     "acc_norm",
-    "loglikelihood_acc_norm_nospace",
-    "loglikelihood_acc_norm",
-    "acc",
     "loglikelihood_acc",
-    "quasi_exact_match",
-    "quasi_exact_match_triviaqa",
-    "quasi_exact_match_gsm8k",
-    "quasi_exact_match_math",
+    "acc",
+    "exact_match",
+    "em",
     "pass@1:1_samples",
+    "pass@1",
 )
+
+_LAUNCHER_TEMPLATE = '''\
+"""Auto-generated lighteval driver. Do not edit.
+
+Written by incepedia.eval.runner.EvalRunner. Invoked via `accelerate launch`.
+"""
+from lighteval.main_accelerate import accelerate
+
+accelerate(
+    model_args={model_args!r},
+    tasks={tasks!r},
+    custom_tasks={custom_tasks!r},
+    output_dir={output_dir!r},
+    max_samples={max_samples!r},
+    save_details=False,
+)
+'''
 
 
 @dataclass
 class EvalRunner:
-    """Configure, execute, and parse a lighteval run."""
+    """Execute lighteval against a model and normalise scores."""
 
     model: str
     output_dir: str | Path
     task_group: str = "early-signal"
     num_processes: int = 8
-    batch_size: int = 16
-    max_samples: int | None = 1000
     main_process_port: int = 29600
+    max_samples: int | None = 500
     custom_tasks_path: str | Path = field(
         default_factory=lambda: REPO_ROOT / "src" / "incepedia" / "eval" / "lighteval_tasks.py"
     )
-    lighteval_entry: str | Path | None = None
-    model_args_extra: str = ""
+    model_args_extra: str = ""  # appended after `pretrained=<model>`, comma-separated kwargs
+    mixed_precision: str = "bf16"  # "no"|"fp16"|"bf16"
     dry_run: bool = False
 
     # populated after run()
@@ -101,79 +113,77 @@ class EvalRunner:
 
     # ── command composition ───────────────────────────────────────────
 
-    def resolve_lighteval_entry(self) -> Path:
-        if self.lighteval_entry:
-            return Path(self.lighteval_entry)
-        candidates = [
-            REPO_ROOT / "third_party" / "lighteval" / "run_evals_accelerate.py",
-            REPO_ROOT / "third_party" / "lighteval" / "src" / "lighteval" / "__main__.py",
-        ]
-        for c in candidates:
-            if c.exists():
-                return c
-        raise FileNotFoundError(
-            "Could not locate lighteval entry script. Install it via "
-            "scripts/bootstrap_env.sh or set EvalRunner(lighteval_entry=...)."
-        )
+    def _model_args(self) -> str:
+        base = f"pretrained={self.model}"
+        if self.model_args_extra:
+            base = f"{base},{self.model_args_extra}"
+        return base
 
-    def build_command(self) -> list[str]:
+    def _tasks_arg(self) -> str:
         if self.task_group not in TASKS_GROUPS:
             raise KeyError(f"Unknown task_group '{self.task_group}'. Known: {list(TASKS_GROUPS)}")
-        tasks_arg = TASKS_GROUPS[self.task_group]
+        return TASKS_GROUPS[self.task_group]
 
-        cmd = [
+    def _write_driver(self, workdir: Path) -> Path:
+        driver = workdir / "run_lighteval_driver.py"
+        driver.write_text(
+            _LAUNCHER_TEMPLATE.format(
+                model_args=self._model_args(),
+                tasks=self._tasks_arg(),
+                custom_tasks=str(self.custom_tasks_path),
+                output_dir=str(self.output_dir),
+                max_samples=self.max_samples,
+            )
+        )
+        return driver
+
+    def build_command(self, driver_path: Path) -> list[str]:
+        return [
             "accelerate", "launch",
             f"--num_processes={self.num_processes}",
             f"--main_process_port={self.main_process_port}",
-            str(self.resolve_lighteval_entry()),
-            f"--model_args=pretrained={self.model}" + (f",{self.model_args_extra}" if self.model_args_extra else ""),
-            "--custom_tasks", str(self.custom_tasks_path),
-            "--output_dir", str(self.output_dir),
-            "--override_batch_size", str(self.batch_size),
-            "--tasks", tasks_arg,
+            f"--mixed_precision={self.mixed_precision}",
+            str(driver_path),
         ]
-        if self.max_samples is not None:
-            cmd += ["--max_samples", str(self.max_samples)]
-        return cmd
 
     # ── execution ─────────────────────────────────────────────────────
 
     def run(self) -> dict[str, float]:
-        cmd = self.build_command()
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix="incepedia_eval_"))
+        try:
+            driver = self._write_driver(tmp)
+            cmd = self.build_command(driver)
+            print("[eval] command:", " ".join(cmd), file=sys.stderr)
+            if self.dry_run:
+                self.returncode = 0
+                return {}
 
-        print("[eval] command:", " ".join(cmd), file=sys.stderr)
-        if self.dry_run:
-            self.returncode = 0
-            return {}
+            t0 = time.time()
+            completed = subprocess.run(cmd, check=False)
+            self.wall_seconds = time.time() - t0
+            self.returncode = completed.returncode
+            if completed.returncode != 0:
+                raise RuntimeError(f"lighteval exited with code {completed.returncode}")
 
-        t0 = time.time()
-        completed = subprocess.run(cmd, check=False)
-        self.wall_seconds = time.time() - t0
-        self.returncode = completed.returncode
-        if completed.returncode != 0:
-            raise RuntimeError(f"lighteval exited with code {completed.returncode}")
-
-        self.scores = self._parse_results()
-        return self.scores
+            self.scores = self._parse_results()
+            return self.scores
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     # ── result parsing ───────────────────────────────────────────────
 
     def _find_latest_results_json(self) -> Path:
-        """lighteval writes results/<org>/<model>/results_<ts>.json ; pick newest."""
-        results_root = Path(self.output_dir) / "results"
-        if not results_root.exists():
-            raise FileNotFoundError(f"No results directory under {results_root}")
-        candidates = sorted(results_root.rglob("results_*.json"), key=lambda p: p.stat().st_mtime)
+        """lighteval 0.13 writes results/<org>/<model>/results_<ts>.json ; pick newest."""
+        out = Path(self.output_dir)
+        candidates = sorted(out.rglob("results_*.json"), key=lambda p: p.stat().st_mtime)
         if not candidates:
-            raise FileNotFoundError(f"No results_*.json under {results_root}")
+            raise FileNotFoundError(f"No results_*.json under {out}")
         self.raw_results_json = candidates[-1]
         return self.raw_results_json
 
     def _parse_results(self) -> dict[str, float]:
-        results_path = self._find_latest_results_json()
-        with results_path.open() as f:
-            payload = json.load(f)
+        payload = json.loads(self._find_latest_results_json().read_text())
         per_task: dict[str, dict[str, Any]] = payload.get("results", {}) or {}
 
         out: dict[str, float] = {}
@@ -183,7 +193,10 @@ class EvalRunner:
         for raw_task, metric_dict in per_task.items():
             if not isinstance(metric_dict, dict):
                 continue
-            # lighteval task keys look like: "custom|arc:easy|0" or "custom|mmlu_cloze:anatomy|0"
+            # raw_task examples: "custom|arc:easy|0", "custom|mmlu_cloze:anatomy|0", "all"
+            if raw_task == "all":
+                # 0.13 often stores an aggregate "all" row; skip, we aggregate ourselves.
+                continue
             m = re.match(r"^(?:custom\|)?([^|]+)(?:\|.*)?$", raw_task)
             task_core = m.group(1) if m else raw_task
             score = _pick_metric(metric_dict)
@@ -203,7 +216,6 @@ class EvalRunner:
             out["mmlu_cloze"] = float(sum(mmlu_cloze_scores) / len(mmlu_cloze_scores))
         if mmlu_mc_scores:
             out["mmlu_mc"] = float(sum(mmlu_mc_scores) / len(mmlu_mc_scores))
-
         return out
 
     # ── output ───────────────────────────────────────────────────────
@@ -211,12 +223,10 @@ class EvalRunner:
     def write_metrics_json(self, path: str | Path, extra: dict | None = None) -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-
         payload = {
             "model": self.model,
             "task_group": self.task_group,
             "num_processes": self.num_processes,
-            "batch_size": self.batch_size,
             "max_samples": self.max_samples,
             "wall_seconds": self.wall_seconds,
             "raw_results_json": str(self.raw_results_json) if self.raw_results_json else None,
@@ -235,7 +245,6 @@ def _pick_metric(metric_dict: dict[str, Any]) -> float | None:
             val = metric_dict[pref]
             if isinstance(val, (int, float)):
                 return float(val)
-    # fall back: first numeric value
     for v in metric_dict.values():
         if isinstance(v, (int, float)):
             return float(v)

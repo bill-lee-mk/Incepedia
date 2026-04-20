@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ENV_NAME="${ENV_NAME:-incepedia}"
-PY_VER="${PY_VER:-3.10}"
+PY_VER="${PY_VER:-3.11}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "────────────────────────────────────────────────────────"
@@ -52,8 +52,13 @@ pip install -r "$REPO_ROOT/requirements.txt"
 # --- editable install of incepedia package ---
 pip install -e "$REPO_ROOT"
 
-# --- HF stack (source installs, pinned commits) ---
-# These change often; we install main-branch builds.
+# --- torch with CUDA 12.4 (matches H100 driver 12.8; torch cu130 not yet widely available) ---
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# --- lighteval from pypi (latest; see docs/decisions/0006-evaluation-stack-policy.md) ---
+pip install lighteval
+
+# --- nanotron + datatrove from source (cosmopedia read-only for reference) ---
 THIRD_PARTY_DIR="$REPO_ROOT/third_party"
 mkdir -p "$THIRD_PARTY_DIR"
 
@@ -67,17 +72,11 @@ clone_or_pull () {
 }
 
 clone_or_pull https://github.com/huggingface/nanotron.git     "$THIRD_PARTY_DIR/nanotron"
-clone_or_pull https://github.com/huggingface/lighteval.git    "$THIRD_PARTY_DIR/lighteval"
 clone_or_pull https://github.com/huggingface/datatrove.git    "$THIRD_PARTY_DIR/datatrove"
 clone_or_pull https://github.com/huggingface/cosmopedia.git   "$THIRD_PARTY_DIR/cosmopedia"
 
-pip install -e "$THIRD_PARTY_DIR/nanotron"  || echo "[warn] nanotron install failed — will retry later"
-pip install -e "$THIRD_PARTY_DIR/lighteval[accelerate,quantization,adapters]" \
-  || echo "[warn] lighteval install failed — will retry later"
-pip install -e "$THIRD_PARTY_DIR/datatrove"  || echo "[warn] datatrove install failed — will retry later"
-
-# --- torch (CUDA 12.x for H100) ---
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -e "$THIRD_PARTY_DIR/nanotron"  || echo "[warn] nanotron install failed — retry manually"
+pip install -e "$THIRD_PARTY_DIR/datatrove" || echo "[warn] datatrove install failed — retry manually"
 
 echo
 echo "[done] To activate:    conda activate $ENV_NAME"
