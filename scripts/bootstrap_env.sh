@@ -16,7 +16,19 @@ echo "  repo  : $REPO_ROOT"
 echo "  env   : $ENV_NAME  (python $PY_VER)"
 echo "────────────────────────────────────────────────────────"
 
-# --- conda sanity ---
+# --- conda sanity (auto-source from common locations if not on PATH) ---
+if ! command -v conda &>/dev/null; then
+  for candidate in \
+      /opt/conda /opt/miniforge3 /opt/miniconda3 \
+      "$HOME/miniforge3" "$HOME/miniconda3" "$HOME/anaconda3"; do
+    if [[ -f "$candidate/etc/profile.d/conda.sh" ]]; then
+      # shellcheck disable=SC1091
+      source "$candidate/etc/profile.d/conda.sh"
+      echo "[info] sourced conda from $candidate"
+      break
+    fi
+  done
+fi
 if ! command -v conda &>/dev/null; then
   echo "[ERR] conda not found. Install miniforge / miniconda first."
   exit 1
