@@ -1,0 +1,61 @@
+# ── 敏感信息 ──────────────────────────────────────
+.env
+.env.local
+*.key
+*.pem
+*_secret*
+
+# ── 大数据 / 运行时产物 ────────────────────────────
+data/datasets/
+data/raw_generations/
+data/reference/
+data/tokenizers/
+data/**/*.parquet
+data/**/*.arrow
+data/**/*.bin
+!data/**/.gitkeep
+
+# ── 实验产物(仅 ckpt 和 eval raw 不入 git,其余 config/metrics 入) ──
+experiments/**/ckpt/
+experiments/**/eval/
+experiments/**/aim_run_id.txt
+experiments/**/*.pth
+experiments/**/*.safetensors
+experiments/**/*.bin
+
+# ── 监控/日志 ─────────────────────────────────────
+aim/
+logs/
+wandb/
+*.log
+!.gitkeep
+
+# ── Python ────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── 环境/工具 ──────────────────────────────────────
+.venv/
+venv/
+.conda/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+
+# ── 临时/同步标记 ──────────────────────────────────
+*.tmp
+*.swp
+*.lock
+*~
+.sync_in_progress

@@ -1,0 +1,33 @@
+# Incepedia topic taxonomy
+#
+# P2 起填充。目标覆盖:
+#   1. BISAC 图书分类(51 大类 × 子类 ≈ 34k topic,同 Cosmopedia v2)
+#   2. Wikipedia category tree(top + 2 层)≈ 50k
+#   3. arXiv subject classifications(STEM 强化)
+#   4. MMLU 57 subject 的主题对齐锚点(注意与评测集本身隔离,不用原题)
+#
+# 结构示例(占位):
+categories:
+  - id: science-physics
+    name: "Physics"
+    source: bisac
+    subtopics:
+      - "Classical Mechanics"
+      - "Quantum Mechanics"
+      - "Thermodynamics"
+  - id: humanities-history
+    name: "History"
+    source: bisac
+    subtopics:
+      - "Ancient Civilizations"
+      - "World Wars"
+      - "Chinese Dynasties"
+
+# 目标配比(每个 topic 占 Incepedia 总 token 数的比例)
+# 会在 P3 阶段根据 ablation 结果动态调整
+ratios:
+  stem: 0.40         # 数学/物理/化学/生物/计算机/工程
+  humanities: 0.20   # 历史/哲学/文学/艺术
+  social: 0.15       # 社会学/心理学/经济/法律
+  practical: 0.15    # 生活/健康/职业/wikihow
+  stories: 0.10      # 故事/常识/对话

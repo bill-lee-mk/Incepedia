@@ -1,0 +1,81 @@
+# Incepedia generator routing table (via OpenRouter)
+#
+# 核心理念: 按任务档位路由,不是"一个更强的生成器解决所有"
+#   - 常识/textbook/wikihow → 中档模型堆量,成本优先
+#   - 数学/推理/代码/多步   → frontier 模型质量优先
+#   - 多 agent critic      → frontier 做 judge,中档做生成
+#
+# 每个 tier 保证至少 2 个家族,避免单模偏置。
+# 生成时按权重抽样,特定任务走 task_map 覆盖。
+
+tiers:
+  midtier_bulk:
+    description: "常识 / textbook / blog / wikihow / stories — 堆量主力"
+    models:
+      - id: deepseek/deepseek-chat
+        weight: 0.30
+        family: deepseek
+      - id: meta-llama/llama-3.3-70b-instruct
+        weight: 0.25
+        family: llama
+      - id: mistralai/mistral-large
+        weight: 0.15
+        family: mistral
+      - id: qwen/qwen-2.5-72b-instruct
+        weight: 0.15
+        family: qwen
+      - id: openai/gpt-4o-mini
+        weight: 0.15
+        family: openai
+
+  frontier_reasoning:
+    description: "数学 / 推理 / 代码 / 多步 — 质量优先"
+    models:
+      - id: anthropic/claude-3.5-sonnet
+        weight: 0.35
+        family: anthropic
+      - id: openai/gpt-4o
+        weight: 0.30
+        family: openai
+      - id: deepseek/deepseek-r1
+        weight: 0.20
+        family: deepseek
+      - id: anthropic/claude-3.5-haiku
+        weight: 0.15
+        family: anthropic
+
+  critic:
+    description: "多 agent 自批改用的 judge"
+    models:
+      - id: anthropic/claude-3.5-sonnet
+        weight: 0.6
+        family: anthropic
+      - id: openai/gpt-4o
+        weight: 0.4
+        family: openai
+
+# 任务到 tier 的映射
+task_map:
+  textbook_from_web: midtier_bulk
+  blog_from_web: midtier_bulk
+  wikihow: midtier_bulk
+  story: midtier_bulk
+  qa_common_sense: midtier_bulk
+  socratic_dialogue: midtier_bulk
+
+  math_textbook: frontier_reasoning
+  math_problem_with_solution: frontier_reasoning
+  code_tutorial: frontier_reasoning
+  code_problem_with_solution: frontier_reasoning
+  scientific_reasoning: frontier_reasoning
+  multi_step_worked_example: frontier_reasoning
+
+  agent_critic: critic
+
+# 默认生成参数(可被任务模板覆盖)
+defaults:
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 3500
+  repetition_penalty: 1.1
+  stop: ["<|endoftext|>"]

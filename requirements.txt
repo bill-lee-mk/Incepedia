@@ -1,0 +1,37 @@
+# Incepedia · runtime dependencies
+# Core pipeline uses HuggingFace stack (nanotron, lighteval, datatrove) — those
+# are installed separately from source in `scripts/bootstrap_env.sh` because
+# they track fast-moving main branches.
+
+# ── Core data / IO ────────────────────────────────────────────────
+datasets>=2.19
+pyarrow>=15
+pandas>=2.2
+numpy>=1.26
+
+# ── Config / env ──────────────────────────────────────────────────
+python-dotenv>=1.0
+pydantic>=2.7
+pyyaml>=6.0
+jinja2>=3.1
+
+# ── Synthesis (OpenRouter async batch client) ─────────────────────
+httpx[http2]>=0.27
+aiolimiter>=1.1
+tenacity>=8.2
+tiktoken>=0.7
+tqdm>=4.66
+
+# ── Dedup & decontam ──────────────────────────────────────────────
+datasketch>=1.6                 # MinHash
+xxhash>=3.4
+faiss-cpu>=1.8                  # embedding dedup index
+sentence-transformers>=3.0      # BGE / nomic-embed
+
+# ── Experiment tracking ───────────────────────────────────────────
+aim>=3.19
+
+# ── Utilities ─────────────────────────────────────────────────────
+rich>=13.7
+click>=8.1
+loguru>=0.7

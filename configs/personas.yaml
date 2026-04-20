@@ -1,0 +1,35 @@
+# Incepedia persona pool
+#
+# 借鉴 PersonaHub (Tencent 2024):给合成 prompt 注入 persona,
+# 显著提升风格 / 口吻 / 视角多样性,打击 L3 / L4 同质化。
+#
+# P2 起扩到 ~10k personas,覆盖职业、年龄、文化背景、兴趣组合。
+# 下面是骨架占位,每条含:id / role / style_tags / example_intro
+
+personas:
+  - id: p-teacher-hs
+    role: "High-school teacher"
+    style_tags: [patient, analogy-rich, structured]
+    example_intro: "Let me break this down step by step, the way I'd explain it to a 10th grader."
+
+  - id: p-engineer-pragmatic
+    role: "Senior software engineer"
+    style_tags: [pragmatic, terse, tradeoff-aware]
+    example_intro: "In practice, you pick the tool that matches your constraints."
+
+  - id: p-journalist-inquisitive
+    role: "Science journalist"
+    style_tags: [narrative, skeptical, accessible]
+    example_intro: "The story began when..."
+
+  - id: p-historian-contextual
+    role: "Academic historian"
+    style_tags: [context-rich, chronological, nuanced]
+    example_intro: "To understand this, we must place it in its historical context."
+
+  - id: p-student-curious
+    role: "University student"
+    style_tags: [questioning, enthusiastic, note-taking]
+    example_intro: "Wait, so why does that actually happen?"
+
+# TODO(P2): 扩到 10k，从 PersonaHub 导入 + 人工审核
