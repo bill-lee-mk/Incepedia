@@ -7,6 +7,7 @@
 #   sync_to_nas.sh config  <exp_id>             # 立即同步 config.yaml
 #   sync_to_nas.sh eval    <exp_id>             # 同步评测结果
 #   sync_to_nas.sh dataset <dataset_id>         # 同步 tokenized 数据集
+#   sync_to_nas.sh reference <ref_id>           # 同步 data/reference/<ref_id>/(原始参考数据)
 #   sync_to_nas.sh nightly                      # 兜底全量(cron 用)
 #   sync_to_nas.sh dry     <type> <args...>     # 所有 type 前加 dry 都是 --dry-run
 #
@@ -119,6 +120,15 @@ case "$MODE" in
     rsync_with_audit "dataset" "$SRC" "$DST"
     ;;
 
+  reference)
+    ensure_nas
+    REF_ID="${1:?需要 reference id (e.g. cosmopedia_v2)}"
+    SRC="$REPO_ROOT/data/reference/$REF_ID/"
+    DST="$NAS_ROOT/data/reference/$REF_ID/"
+    [[ -d "$SRC" ]] || { echo "[ERR] no reference dir: $SRC"; exit 1; }
+    rsync_with_audit "reference" "$SRC" "$DST"
+    ;;
+
   nightly)
     ensure_nas
     # Safety-net full sync. Strict excludes of big-but-replaceable runtime dirs.
@@ -129,6 +139,8 @@ case "$MODE" in
       "$REPO_ROOT/experiments/"  "$NAS_ROOT/experiments/"
     rsync -a --human-readable $DRY "${COMMON_EXCLUDES[@]}" \
       "$REPO_ROOT/data/datasets/"        "$NAS_ROOT/data/datasets/"
+    rsync -a --human-readable $DRY "${COMMON_EXCLUDES[@]}" \
+      "$REPO_ROOT/data/reference/"       "$NAS_ROOT/data/reference/"
     rsync -a --human-readable $DRY "${COMMON_EXCLUDES[@]}" \
       "$REPO_ROOT/data/raw_generations/" "$NAS_ROOT/data/raw_generations/"
     [[ -f "$REPO_ROOT/INDEX.parquet" ]] && rsync -a $DRY "$REPO_ROOT/INDEX.parquet" "$NAS_ROOT/INDEX.parquet"
