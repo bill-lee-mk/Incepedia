@@ -1,0 +1,53 @@
+# Track 2 · Shared backbone (trained ONCE, reused by all cooldown-forks)
+# 1.82B Llama2 × 20B FineWeb-Edu tokens, trapezoidal with warmup + stable phase,
+# NO cooldown. We save final ckpt at 20B and use it as init_from for all Track 2 forks.
+#
+# Expected runtime: ~1.4 days on 8×H100.
+# Expected compute: ~270 H100-hours (amortised across ~30 cooldown forks).
+
+exp_id: backbone_fineweb_edu
+stage: P1
+track: 1   # backbone itself is standalone-style training; subsequent forks are Track 2
+branch_from: null
+
+dataset:
+  id: fineweb_edu_backbone
+  path: data/datasets/fineweb_edu_backbone
+  tokens: 30_000_000_000
+  notes: >
+    Tokenized from data/reference/fineweb_edu_dedup/fineweb-edu-dedup/ (32 shards).
+    We use first 20B tokens via nanotron's consumed-samples mechanism.
+
+model:
+  arch: llama2-1.82B
+  seq_len: 2048
+  tokenizer: mistralai/Mistral-7B-v0.1
+  vocab_size: 32000
+  init_from: null
+
+training:
+  train_tokens: 20_000_000_000
+  global_batch_tokens: 1_310_720
+  micro_batch_size: 4
+  seed: 42
+  mixed_precision: bf16
+  gradient_clip: 1.0
+  weight_decay: 0.1
+  schedule:
+    scheduler: trapezoidal
+    lr_max: 3.0e-4
+    lr_min: 3.0e-4          # backbone: keep LR at peak through end (NO cooldown here)
+    warmup_tokens: 500_000_000
+    stable_tokens: 19_500_000_000
+    cooldown_tokens: 0
+
+eval:
+  task_group: early-signal
+  max_samples: 1000
+  eval_every_tokens: 5_000_000_000
+  final_eval: true
+
+notes: >
+  Shared backbone for Track 2 seasoning experiments. Once final ckpt saved,
+  protect from deletion; future cooldown-fork configs set
+  `branch_from: backbone_fineweb_edu:final` and `model.init_from: <ckpt_path>`.
