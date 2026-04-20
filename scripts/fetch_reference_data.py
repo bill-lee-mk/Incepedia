@@ -9,9 +9,10 @@ Supports three targets (all public, no HF token required):
                          Downloaded in full via snapshot_download.
 
     fineweb-edu-dedup  — Track 2 backbone (FineWeb-Edu deduplicated)
-                         Source: HuggingFaceTB/smollm-corpus, config "fineweb-edu-dedup"
-                         Full set is ~220B tokens / ~470 GB.
-                         We only need ~30B tokens → streaming mode with a token budget.
+                         Source: HuggingFaceTB/smollm-corpus, subdir "fineweb-edu-dedup/"
+                         Full set is 234 parquet shards, ~220B tokens / ~470 GB.
+                         For Track 2 backbone we only need ~30B tokens → pull the
+                         first N shards (default 32 → ~30B tokens).
 
     cosmopedia-v1      — Track 1 reference (old Cosmo-1B era)
                          Source: HuggingFaceTB/cosmopedia (standalone dataset)
@@ -21,7 +22,7 @@ Supports three targets (all public, no HF token required):
 Usage
 -----
     python scripts/fetch_reference_data.py cosmopedia-v2
-    python scripts/fetch_reference_data.py fineweb-edu-dedup --max-tokens 30_000_000_000
+    python scripts/fetch_reference_data.py fineweb-edu-dedup --num-shards 32
     python scripts/fetch_reference_data.py cosmopedia-v1
 
 By default destinations are under  data/reference/<dataset-id>/  in the repo root.
@@ -45,10 +46,10 @@ from incepedia.config import REFERENCE_DIR
 # Enable HF's high-speed downloader if installed (no-op otherwise).
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
 
-# Per-row-approximate storage cost cache, in case we need to pre-allocate.
-# (Not currently used, kept as reference for future planning.)
-
-DEFAULT_FINEWEB_MAX_TOKENS = 30_000_000_000  # 30B — covers 20B backbone + slack
+# FineWeb-Edu-dedup on smollm-corpus has 234 shards. 32 of them ≈ 30B tokens,
+# which covers the Track 2 backbone (20B) + slack.
+FINEWEB_TOTAL_SHARDS = 234
+DEFAULT_FINEWEB_NUM_SHARDS = 32
 
 
 def _log(msg: str, dest: Path) -> None:
@@ -93,93 +94,25 @@ def fetch_snapshot(
     _log(f"  done in {dt:.1f}s; {total_bytes/2**30:.2f} GiB on disk at {path}", log_path)
 
 
-# ── Streaming-based fetcher (token-budgeted subset) ─────────────────────
+# ── FineWeb-Edu: snapshot subset of upstream shards ─────────────────────
 
-def fetch_streaming_token_budget(
-    repo_id: str,
-    config_name: str,
-    dest: Path,
-    max_tokens: int,
-    shard_rows: int = 100_000,
-    token_count_col: str = "token_count",
-) -> None:
-    """Stream a dataset, stop once token budget hit, write local Parquet shards.
+def fetch_fineweb_edu_shards(dest: Path, num_shards: int, total_shards: int = FINEWEB_TOTAL_SHARDS) -> None:
+    """Pull the first `num_shards` of fineweb-edu-dedup via snapshot_download.
 
-    State file `<dest>/.fetch_state.json` tracks progress; restart is safe-ish
-    (we resume by skipping the rows already consumed in sequence, using HF's
-    built-in streaming iteration ordering).
+    Keeping upstream shard layout (`train-NNNNN-of-MMMMM.parquet`) means:
+      - We preserve the dataset's own partitioning
+      - Resume-on-failure is native
+      - Downstream tokenizer can use `datasets.load_dataset` with the same file set
     """
-    from datasets import load_dataset
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    dest.mkdir(parents=True, exist_ok=True)
-    log_path = dest / "fetch.log"
-    state_path = dest / ".fetch_state.json"
-
-    state = {"tokens_written": 0, "rows_written": 0, "shard_idx": 0}
-    if state_path.exists():
-        state.update(json.loads(state_path.read_text()))
-        _log(f"resuming at tokens={state['tokens_written']:,} shard={state['shard_idx']}", log_path)
-
-    skip_rows = state["rows_written"]
-
-    _log(f"streaming repo={repo_id} config={config_name} budget={max_tokens:,} tokens", log_path)
-    ds = load_dataset(repo_id, config_name, split="train", streaming=True)
-
-    buffer: list[dict] = []
-    seen = 0
-    tokens_in_buffer = 0
-    t0 = time.time()
-
-    for row in ds:
-        seen += 1
-        if seen <= skip_rows:
-            continue
-        tok = int(row.get(token_count_col, 0)) if row.get(token_count_col) else 0
-        buffer.append(row)
-        tokens_in_buffer += tok
-
-        if len(buffer) >= shard_rows:
-            _flush_parquet_shard(buffer, dest, state["shard_idx"])
-            state["shard_idx"] += 1
-            state["rows_written"] += len(buffer)
-            state["tokens_written"] += tokens_in_buffer
-            state_path.write_text(json.dumps(state, indent=2))
-            elapsed = time.time() - t0
-            _log(
-                f"shard {state['shard_idx']-1:04d} written "
-                f"(rows={state['rows_written']:,} tokens={state['tokens_written']:,} "
-                f"elapsed={elapsed:.0f}s)",
-                log_path,
-            )
-            buffer = []
-            tokens_in_buffer = 0
-
-        if state["tokens_written"] + tokens_in_buffer >= max_tokens:
-            break
-
-    if buffer:
-        _flush_parquet_shard(buffer, dest, state["shard_idx"])
-        state["shard_idx"] += 1
-        state["rows_written"] += len(buffer)
-        state["tokens_written"] += tokens_in_buffer
-        state_path.write_text(json.dumps(state, indent=2))
-
-    _log(
-        f"done: wrote {state['rows_written']:,} rows / {state['tokens_written']:,} tokens "
-        f"across {state['shard_idx']} shards in {time.time()-t0:.1f}s",
-        log_path,
+    if num_shards > total_shards:
+        raise ValueError(f"num_shards={num_shards} > total {total_shards}")
+    patterns = [f"fineweb-edu-dedup/train-{i:05d}-of-{total_shards:05d}.parquet" for i in range(num_shards)]
+    patterns.append("README.md")
+    fetch_snapshot(
+        repo_id="HuggingFaceTB/smollm-corpus",
+        dest=dest,
+        allow_patterns=patterns,
     )
-
-
-def _flush_parquet_shard(rows: list[dict], dest: Path, idx: int) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    table = pa.Table.from_pylist(rows)
-    out = dest / f"shard-{idx:05d}.parquet"
-    pq.write_table(table, out, compression="zstd")
 
 
 # ── Fetch plans ──────────────────────────────────────────────────────────
@@ -192,13 +125,8 @@ def _plan_cosmopedia_v2(dest: Path) -> None:
     )
 
 
-def _plan_fineweb_edu_dedup(dest: Path, max_tokens: int) -> None:
-    fetch_streaming_token_budget(
-        repo_id="HuggingFaceTB/smollm-corpus",
-        config_name="fineweb-edu-dedup",
-        dest=dest,
-        max_tokens=max_tokens,
-    )
+def _plan_fineweb_edu_dedup(dest: Path, num_shards: int) -> None:
+    fetch_fineweb_edu_shards(dest=dest, num_shards=num_shards)
 
 
 def _plan_cosmopedia_v1(dest: Path) -> None:
@@ -219,10 +147,11 @@ def main() -> int:
     )
     parser.add_argument("--dest", type=Path, default=None, help="Override destination path.")
     parser.add_argument(
-        "--max-tokens",
+        "--num-shards",
         type=int,
-        default=DEFAULT_FINEWEB_MAX_TOKENS,
-        help="Token budget for streaming datasets (fineweb-edu-dedup). Default 30B.",
+        default=DEFAULT_FINEWEB_NUM_SHARDS,
+        help=f"Number of fineweb-edu-dedup shards to fetch (of {FINEWEB_TOTAL_SHARDS}). "
+        f"Default {DEFAULT_FINEWEB_NUM_SHARDS} ≈ 30B tokens.",
     )
     args = parser.parse_args()
 
@@ -236,7 +165,7 @@ def main() -> int:
     if args.dataset == "cosmopedia-v2":
         _plan_cosmopedia_v2(dest)
     elif args.dataset == "fineweb-edu-dedup":
-        _plan_fineweb_edu_dedup(dest, args.max_tokens)
+        _plan_fineweb_edu_dedup(dest, args.num_shards)
     elif args.dataset == "cosmopedia-v1":
         _plan_cosmopedia_v1(dest)
     return 0
