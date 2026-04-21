@@ -125,7 +125,13 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "seed": t.seed,
             "step": None,
             "consumed_train_samples": None,
-            "ignore_sanity_checks": False,
+            # Nanotron's per-step cross-rank `assert_tensor_synced_across_pg`
+            # runs `torch.testing.assert_close` on full tensors — measured via
+            # py-spy to consume ~1s/step on this 8×H100 setup (≈2× slowdown).
+            # Upstream default is True, and nanotron prints a warning if False.
+            # Keep it on the default; re-enable by setting this to False only
+            # when debugging divergence / NaN / rank desync.
+            "ignore_sanity_checks": True,
         },
         "checkpoints": {
             "checkpoint_interval": max(2000, steps_train // 20),  # ~20 checkpoints per run
