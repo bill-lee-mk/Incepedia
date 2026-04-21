@@ -3,8 +3,8 @@
 | 字段 | 值 |
 |---|---|
 | 更新频率 | 每周一 / 周四,2 次/周 |
-| 本次更新 | 2026-04-21 06:20 UTC(双协议架构落地:ADR 0007 + Qwen3-1.7B spec + 4 个新 reference experiment configs) |
-| 当前阶段 | **P1 · 基础设施搭建**(~90% 完成) |
+| 本次更新 | 2026-04-21 08:30 UTC(smoke test 通过 / 双协议完整落地 / Qwen tokenizer 重 tokenize 进行中 / eval 数据集预下载完成) |
+| 当前阶段 | **P1 · 基础设施搭建**(~95% 完成,差最后一次真实训练) |
 | Owner | bill-lee-mk |
 
 > 本文档是项目的"一页纸"视图。细节见 `docs/methodology.md` 与 `docs/decisions/`。
@@ -27,11 +27,14 @@
 | 参考数据 · FineWeb-Edu 32 shards(raw) | ✅ | 72 GB,本地+NAS 双副本 |
 | **Conda env**(Python 3.11 + lighteval 0.13 + datasets 3.6 + flash-attn 2.8.3) | ✅ | 8.5 GB,CUDA OK |
 | **评测层**(port + runner) | 🟡 | 代码就绪,5 处 API 适配 bug 已识别并修(uncommitted) |
-| **训练层**(config + launcher + orchestrator,**支持双架构**) | ✅ | dry-run 通过;Llama2-1.82B + Qwen3-1.7B spec 都派发正确 |
-| Reference experiment configs · Protocol A(Llama2-1.82B × 2 seeds) | ✅ | seed42 + seed1337 |
-| Reference experiment configs · Protocol B(Qwen3-1.7B × 2 seeds) | ✅ | seed42 + seed1337(新增) |
-| Backbone experiment config · Qwen3 | ✅ | `backbone_fineweb_edu_qwen3`(新增) |
-| Qwen3 nanotron patch | 🟡 | spec dict 就绪;运行时 patch 是 stub,首次 Qwen3 训练前实现 |
+| **训练层**(config + launcher + orchestrator,**支持双架构**) | ✅ | dry-run 通过;Llama2-1.82B + Qwen3-1.7B spec 都派发正确;Aim logging 配置注入 |
+| Reference experiment configs · Protocol A(Llama2-1.82B × 2 seeds) | ✅ | seed42 + seed1337(Mistral tokenizer) |
+| Reference experiment configs · Protocol B(Qwen3-1.7B × 2 seeds) | ✅ | seed42 + seed1337(Qwen tokenizer) |
+| Backbone experiment config · Qwen3 | ✅ | `backbone_fineweb_edu_qwen3` |
+| **Qwen3 nanotron 集成** | ✅ | **发现 nanotron 原生支持 Qwen2 架构**,直接用 `is_qwen2_config: True` 触发内置 Qwen2Model,0 patch 代码 |
+| **Smoke test · cosmo-1b** | ✅ | **12 CSR task 全部通过**,pipeline 端到端验证 |
+| **eval 数据集预下载** | ✅ | 69 configs cached,16 GB in `data/hf_cache/`,训练 eval 时无 HF 429 风险 |
+| **Qwen tokenizer 数据重 tokenize** | 🟡 | 两个后台任务跑中(Cosmopedia v2 + FineWeb-Edu),预计再 ~30 min 完成 |
 | **Tokenized · Cosmopedia v2** | ✅ | **31.5B tokens / 58.76 GiB / 16 .ds shards / 9.2 min** |
 | **Tokenized · FineWeb-Edu backbone** | ✅ | **29B tokens / 54.04 GiB / 16 .ds shards / 8.6 min** |
 | **flash-attn** | ✅ | 2.8.3 已装 |
@@ -153,4 +156,6 @@ d7ec352 fix(gitignore): exclude third_party (not submodules)
 | 2026-04-20 | 创建,P1 筹备阶段 |
 | 2026-04-20 | 完成环境重建 + eval/training 代码重写 + Cosmopedia v2 tokenize (31.5B tokens) |
 | 2026-04-21 01:30 UTC | FineWeb-Edu tokenize ✅(29B tokens / 54 GiB)+ flash-attn ✅;smoke test 修了 5 个 lighteval 0.13 适配 bug,最后一轮 Shell 挂死未启动;有 2 个文件 uncommitted |
-| 2026-04-21 06:20 UTC | **双协议架构决策落地**(ADR 0007):Llama2-1.82B 作外部锚,Qwen3-1.7B 作工作架构;launcher 重构支持多架构;新增 4 个 reference experiment configs;`incepedia-overview.md` + .docx 同步;Qwen3 nanotron patch spec 就绪,运行时 patch 留作首次训练前实现 |
+| 2026-04-21 06:20 UTC | **双协议架构决策落地**(ADR 0007):Llama2-1.82B 作外部锚,Qwen3-1.7B 作工作架构;launcher 重构支持多架构;新增 4 个 reference experiment configs |
+| 2026-04-21 08:00 UTC | **cosmo-1b smoke test 全程跑通**:12 CSR 任务全部产出,pipeline 端到端验证;又修了 5 个 lighteval/datasets 0.13/3.6 适配 bug(model_name/task-name collision/task|N format/datasets-4.x-scripts/BoolQ schema/NCCL watchdog/parser regex) |
+| 2026-04-21 08:30 UTC | **Qwen tokenizer 切换**:Qwen3 Protocol B 改用 Qwen/Qwen2.5-1.5B tokenizer;nanotron 内置 Qwen2Config 原生支持(无需 patch);eval 数据集预下载完成(69 configs,16 GB);Qwen tokenizer 数据重 tokenize 进行中(两个后台任务) |
