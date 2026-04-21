@@ -6,14 +6,9 @@ date: "2026-04-21"
 
 # Incepedia · 项目思路汇报
 
-> 本文件由 agent 从历史对话中**原封不动**抽取拼接,按汇报逻辑重新组织。
-> 每节标题下方的内容均为对话原文。
-
 ---
 
 # 1. 当前 Cosmopedia 的局限性
-
-(以下文字摘自《Cosmopedia 全貌》调研第 1.5 节)
 
 1. **Mixtral 的事实幻觉**——Khan/AutoMathText 部分数学/科学事实有错。
 2. **生成器是天花板**——风格、深度、推理链都受 Mixtral‑Instruct 限制(尽管 v2 验证更强模型也没救,说明瓶颈是**提示+种子**)。
@@ -40,11 +35,11 @@ date: "2026-04-21"
 
 ## 2.3 三阶段路线图
 
-| 阶段 | 时长 | 目标 | 成功标准 |
-|---|---|---|---|
-| **P1 · 复现** | 2–3 周 | 复现 Cosmopedia v2 在 Track 2 + Cosmopedia v1 在 Track 1 的基线 | 分数对齐公开数字 ±0.5pp |
-| **P2 · PoC** | 4–6 周 | 3B token Incepedia v0.1 | 两轨均持平或超越 Cosmopedia |
-| **P3 · 迭代+扩容** | 2–3 月 | 10B–30B token Incepedia v1.0 | 两轨显著超越,逼近 SmolLM2 |
+| 阶段 | 目标 | 成功标准 |
+|---|---|---|
+| **P1 · 复现** | 复现 Cosmopedia v2 在 Track 2 + Cosmopedia v1 在 Track 1 的基线 | 分数对齐公开数字 ±0.5pp |
+| **P2 · PoC** | 3B token Incepedia v0.1 | 两轨均持平或超越 Cosmopedia |
+| **P3 · 迭代+扩容** | 10B–30B token Incepedia v1.0 | 两轨显著超越,逼近 SmolLM2 |
 
 ---
 
@@ -54,7 +49,7 @@ date: "2026-04-21"
 
 ---
 
-# 4. 第一步 · 百分百复现 Cosmopedia 的训练‑评测管线(原文 §3.1.1)
+# 4. 第一步 · 百分百复现 Cosmopedia 的训练‑评测管线
 
 目标:**搭一个"无新意但 100% 一致"的 reference pipeline**,后续所有实验都跑在它之上,排除非数据因素。
 
@@ -77,16 +72,16 @@ date: "2026-04-21"
 2. 复刻数据预处理:用 `datatrove` 做 tokenization → `nanotron` shard 格式。
 3. **冒烟基线 1**:用 **公开的 `cosmopedia‑v2`** 全量训 30B tokens × 2 seeds → 在 lighteval 早信号组上得到 reference 分数,与 SmolLM blog 中 Mixture11 的数字对齐(±0.5pp 以内才算对得上)。
 4. **冒烟基线 2**:同样设置训 `FineWeb-Edu` 30B → 对齐 `HuggingFaceFW/ablation-model-fineweb-edu` 数字。
-   - 这两个对齐过了,你的 reference 管线才能宣告"可信"。
+   - 这两个对齐过了,reference 管线才能宣告"可信"。
 5. **Checkpoint 策略**:`nanotron` 默认每 N 步存一份;**强制每 2B token 存一次,并在 6/12/18/24/30B 五个节点上各做 lighteval**——这就是后续所有 Incepedia 分叉实验的"早期信号 dashboard"。
-6. **去污染**:用 `cosmopedia/decontamination` 跑 10‑gram + difflib,**针对你最终所有评测集**(含 GSM8k、MMLU‑Pro、HumanEval 的输入)。
+6. **去污染**:用 `cosmopedia/decontamination` 跑 10‑gram + difflib,**针对最终所有评测集**(含 GSM8k、MMLU‑Pro、HumanEval 的输入)。
 7. **WandB / MLflow**:loss、grad norm、token throughput、每 2B token 的所有 lighteval 分数都进同一面板,后面方便对比。
 
-> **对你"checkpoint 分叉"诉求的关键提醒**:`nanotron` 存的是优化器+权重的 full state,可以 resume。**所以一定要用 trapezoidal+cooldown,而不是 cosine**——cosine 一旦动末端 LR 就回不了头;trapezoidal 的 cooldown 是单独阶段,可以从同一个"主干 checkpoint"上**多次分叉做不同 cooldown 实验**(SmolLM 团队就是这么省算力的,见 Hägele et al. 2024)。
+> **关于"checkpoint 分叉"诉求的关键提醒**:`nanotron` 存的是优化器+权重的 full state,可以 resume。**所以一定要用 trapezoidal+cooldown,而不是 cosine**——cosine 一旦动末端 LR 就回不了头;trapezoidal 的 cooldown 是单独阶段,可以从同一个"主干 checkpoint"上**多次分叉做不同 cooldown 实验**(SmolLM 团队就是这么省算力的,见 Hägele et al. 2024)。
 
 ---
 
-# 5. 第二步 · 生成 Incepedia(原文 §3.2.1)
+# 5. 第二步 · 生成 Incepedia
 
 ## 5.1 大方向(吸取 Cosmopedia 的教训 + 2025‑2026 最新经验)
 
@@ -99,56 +94,25 @@ date: "2026-04-21"
 | Seed 来源 | FineWeb 全文检索 | **FineWeb‑Edu(higher quality)+ Wikipedia + arXiv abstracts + Stack‑Edu + 已发布教科书目录**;每个 prompt **强制带 1 个 seed 段落**(避免凭空生成 → 减幻觉) |
 | 内容形态 | textbook / blog / wikiHow / story | + **"问答对话(Socratic)" + "课后习题 + 解答" + "代码教程" + "概念辩论(multi‑agent)" + "instruction reversal"(给答案反推问题)**——直接借 Phi‑4 的方法 |
 
-## 5.2 用 OpenRouter 的具体工程方案
-
-**生成 pipeline(替换 `llm-swarm` 为 OpenRouter‑native):**
-
-```
-prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
-        │
-        ▼
-[ OpenRouter 异步批量调用器 ]   ← 自写,~300 行 Python
-   - asyncio + aiohttp,并发 200–500 req
-   - 内置重试/限流/路由(按价格/可用性自动 fallback)
-   - 每个 prompt 随机抽 generator_pool 中 1 个模型
-   - 检查最小长度、停用词、boilerplate(可直接搬 cosmopedia/generation/boilerplate_cleanup.py)
-        │
-        ▼
-[ datatrove pipeline ]  →  language ID + dedup + decontamination + tokenization
-        │
-        ▼
-[ HF dataset shards ]
-```
-
-**Prompt 工程的关键改进**(每条都是 Cosmopedia 留下的明显 gap):
-
-1. **强制 seed‑grounding**:prompt 模板里写 *"All factual claims MUST be derivable from the seed text or general knowledge; if uncertain, write 'I am not sure' instead of guessing."* — 直接降低 Mixtral 时代的幻觉。
-2. **难度分层**:每个 topic 生成 5 档(elementary / middle / high‑school / college / expert),后续 ablation 看 **课程式课程顺序(curriculum)** 是否带来增益。
-3. **多 agent 自批改**:对 50% 高价值 topic(STEM/code),先用 Llama‑3.3‑70B 生成 → 用 Claude‑3.5 做 critic 打分 → 低分重写。Phi‑4 报告显示这步带来非平凡增益。
-4. **Instruction reversal**:从 web 段落反推可能的指令/问题,生成"伪 SFT 风格"段落混进 pretrain(Phi‑4 用过)。
-5. **风格反单调化**:Cosmopedia 的"Once upon a time"问题 → 维护一个"禁用开头"列表,每代每千条采样回放检查模式。
-
-## 5.3 质量控制与去重
+## 5.2 质量控制与去重
 
 - **MinHash dedup**(`datatrove`,与 Cosmopedia 同参数:n‑gram=5,阈值 0.7)
-- **Embedding‑level near‑dup**(BGE‑small / nomic‑embed,阈值 cos>0.92):**Cosmopedia 没做,这是你的关键超越点之一**
+- **Embedding‑level near‑dup**(BGE‑small / nomic‑embed,阈值 cos>0.92):**Cosmopedia 没做,这是关键超越点之一**
 - **Quality classifier**:复用 `HuggingFaceFW/fineweb-edu-classifier` 给每条打分,只保留 score≥3 → 这是 FineWeb‑Edu 提分的核心 trick
 - **Decontamination**:沿用 cosmopedia 的 10‑gram + 0.5 ratio,**新增对 GSM8k/MATH/HumanEval/MBPP 的覆盖**
 
 ---
 
-# 6. 关于"量级是不是定 10B"——我的看法(原文 §3.4)
-
-**你直觉是对的:不要锁死 10B**。我的建议比你的"3/5/8/10/15B 截断"更进一步:
+# 6. 关于"量级是不是定 10B"
 
 1. **解耦"数据集 size"和"训练消耗 token 数"**——这是评估合成数据最容易踩的坑。
    - 一个 5B 的高密度数据集,跑 6 epoch ≈ 30B 训练 token,可能比 30B 数据集跑 1 epoch 更优(Phi‑4 报告:**12 epoch 合成数据 > 1 epoch 更多 unique web token**)。
-   - 因此你的"截断实验"应该是**两个轴的网格**:`{数据集 size: 1, 3, 5, 10, 15, 30B} × {训练 token: 30B, 100B}`,而不是单轴。
+   - 因此"截断实验"应该是**两个轴的网格**:`{数据集 size: 1, 3, 5, 10, 15, 30B} × {训练 token: 30B, 100B}`,而不是单轴。
 
 2. **定一个"涌现监测器"**:每次 ablation 都画 *训练 token vs 各 benchmark*。**涌现的标志是某个 benchmark 在某 token 数突然非线性跃升**。一旦观察到,**马上在那个区间加密采样**(比如 25–35B 之间每 2B 存 ckpt)。
 
 3. **优先级建议**:
-   - 第一阶段(2–4 周):先做到 **3B 高质量 Incepedia**,跑 30B token ablation,**和 Cosmopedia‑v2 同设置打成平手或更好**——这是 PoC,先证明"我的方法论有效"。
+   - 第一阶段(2–4 周):先做到 **3B 高质量 Incepedia**,跑 30B token ablation,**和 Cosmopedia‑v2 同设置打成平手或更好**——这是 PoC,先证明"方法论有效"。
    - 第二阶段(1–2 月):扩到 10B + 多领域配比 ablation,目标是 **MMLU/GSM8k 显著超过 Cosmopedia‑v2**。
    - 第三阶段:扩到 30B + 与 FineWeb‑Edu 混合,目标超过 **SmolLM2 公开数字**。
 
@@ -160,7 +124,7 @@ prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
 
 ## 7.1 严格定义
 
-**Ablation Training = "控制变量法"在数据集/训练 pipeline 上的应用。** 固定除一个变量外的所有东西(模型架构、初始化 seed、tokenizer、token 总数、超参、评测脚本),**只动你要研究的那一个变量**,看下游模型 benchmark 的差异。
+**Ablation Training = "控制变量法"在数据集/训练 pipeline 上的应用。** 固定除一个变量外的所有东西(模型架构、初始化 seed、tokenizer、token 总数、超参、评测脚本),**只动要研究的那一个变量**,看下游模型 benchmark 的差异。
 
 ## 7.2 它和"训完一个模型测一下"的本质区别
 
@@ -169,7 +133,7 @@ prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
 
 ## 7.3 用到 Incepedia 生成的具体场景
 
-我列 10 个**当前你最该跑的 ablation 实验**(每个 30B token × 2 seed,8×H100 上 1‑2 天一组):
+10 个**当前最该跑的 ablation 实验**(每个 30B token × 2 seed,8×H100 上 1‑2 天一组):
 
 | 编号 | 变量 | 对照组 A | 对照组 B | 想回答的问题 |
 |---|---|---|---|---|
@@ -194,8 +158,6 @@ prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
 
 # 8. 当前在做的:复现 Cosmopedia v2 reference baseline
 
-(以下文字综合摘自方法论 §2.2 与 ADR 0004 的双轨协议描述)
-
 ## 8.1 Track 1 · Standalone(独立 corpus 能力)
 
 | 项 | 值 |
@@ -211,8 +173,8 @@ prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
 | 项 | 值 |
 |---|---|
 | 协议 | **共享 backbone + cooldown‑fork** |
-|       | Backbone:1.82B Llama2 × 20B tokens FineWeb‑Edu(trapezoidal LR,warmup+stable 阶段结束保存 ckpt)—— **一次性投入,之后所有 fork 共用** |
-|       | Fork:从 backbone ckpt 分叉,LR 从 peak 线性衰减到 0,喂 6B tokens 的测试数据集 |
+| 协议 · backbone | 1.82B Llama2 × 20B tokens FineWeb‑Edu(trapezoidal LR,warmup+stable 阶段结束保存 ckpt)—— **一次性投入,之后所有 fork 共用** |
+| 协议 · fork | 从 backbone ckpt 分叉,LR 从 peak 线性衰减到 0,喂 6B tokens 的测试数据集 |
 | 单次墙钟 | backbone 1.4 天(一次);每 fork ~10 h(1 seed)/ ~20 h(2 seeds) |
 | 适用问题 | "在 SmolLM2 式 decay 阶段,用数据集 X 精调,和用 Y 精调相比如何?" |
 | 论文血脉 | SmolLM2 论文评判 Cosmopedia v2 的真实协议 |
@@ -296,7 +258,7 @@ prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
 ### C16 · Synthetic 贯穿 pretrain 全程(Phi-4 路线)
 - 这不是生成器决策,是**训练配方**决策
 - Phi-4 报告:12 epochs synthetic > 1 epoch more unique web
-- 对我们的含义:在"独立 corpus"场景(Track 1),Incepedia 应作为 100% 主力而非仅 cooldown;在"配料"场景(Track 2),评测其作为 decay 调料的 delta 增益
+- 含义:在"独立 corpus"场景(Track 1),Incepedia 应作为 100% 主力而非仅 cooldown;在"配料"场景(Track 2),评测其作为 decay 调料的 delta 增益
 - **这恰好对齐两条 ablation 轨道**(ADR 0004)
 
 ---
@@ -311,7 +273,7 @@ prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
 | "Incepedia v0.X 相对 v0.Y 进步了多少?" | ✅ 能 | ✅ 能 |
 | "独立 corpus 和调料能力,哪个方向更有前景?" | ❌ 缺独立数据 | ❌ 缺配料数据 |
 
-→ **Track 1 + Track 2 一起 = 完整覆盖 🆑 目标**(独立 corpus 与 decay 调料双场景)。少任何一个都不对等。
+→ **Track 1 + Track 2 一起 = 完整覆盖**(独立 corpus 与 decay 调料双场景)。少任何一个都不对等。
 
 ## 10.1 协议选择规则(自适应,非配额)
 
@@ -321,9 +283,3 @@ prompts.parquet (prompt, topic, audience, format, seed, generator_pool)
 - 参数微调 / 配比扫描 / 单变量 ablation → **Track 2**
 - **不设前置配额**,事后盘点比例作为项目记录
 - 预估自然分布:Track 1 ~15%、Track 2 ~85%(约 6 + 33 ≈ 40 次 ablation)
-
----
-
-*— 文档结束 —*
-
-*本文件由 agent 从历史对话中复制拼接,所有正文为对话原文。*
