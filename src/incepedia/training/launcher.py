@@ -207,9 +207,10 @@ def launch_training(cfg: ExperimentConfig, num_processes: int = 8, dry_run: bool
     (cfg.exp_dir / "ckpt").mkdir(exist_ok=True)
     nt_yaml = build_nanotron_yaml(cfg)
 
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
-        yaml.safe_dump(nt_yaml, f)
-        yaml_path = Path(f.name)
+    # Persist the rendered YAML alongside the experiment so crashes can be
+    # reproduced from disk (and not from `/tmp/` which may be cleared).
+    yaml_path = cfg.exp_dir / "nanotron.yaml"
+    yaml_path.write_text(yaml.safe_dump(nt_yaml))
 
     cmd = [
         "accelerate", "launch",
@@ -218,15 +219,38 @@ def launch_training(cfg: ExperimentConfig, num_processes: int = 8, dry_run: bool
         "-m", "nanotron.trainer",
         "--config-file", str(yaml_path),
     ]
+    train_log = cfg.exp_dir / "train.log"
     print(f"[train] exp={cfg.exp_id}  track={cfg.track}  "
           f"tokens={cfg.training.train_tokens:,}", file=sys.stderr)
     print("[train] command:", " ".join(cmd), file=sys.stderr)
+    print(f"[train] log    : {train_log} (tee; also echoed to stderr)", file=sys.stderr)
     if dry_run:
         print("[train] dry-run — not executing", file=sys.stderr)
         return 0
 
     t0 = time.time()
-    result = subprocess.run(cmd, check=False)
+    # Tee child stdout/stderr to both console and `experiments/<exp_id>/train.log`
+    # so a multi-rank silent crash still leaves on-disk evidence.
+    with train_log.open("ab", buffering=0) as log_fh:
+        header = (
+            f"# ==== {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
+            f"launch {cfg.exp_id} ====\n"
+            f"# cmd: {' '.join(cmd)}\n"
+        ).encode()
+        log_fh.write(header)
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
+        )
+        assert proc.stdout is not None
+        for chunk in iter(lambda: proc.stdout.readline(), b""):
+            sys.stderr.buffer.write(chunk)
+            sys.stderr.buffer.flush()
+            log_fh.write(chunk)
+        returncode = proc.wait()
     dt = time.time() - t0
-    print(f"[train] exited with code {result.returncode} in {dt/60:.1f} min", file=sys.stderr)
-    return result.returncode
+    print(f"[train] exited with code {returncode} in {dt/60:.1f} min "
+          f"(log: {train_log})", file=sys.stderr)
+    return returncode
