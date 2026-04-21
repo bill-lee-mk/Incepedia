@@ -3,8 +3,8 @@
 | 字段 | 值 |
 |---|---|
 | 更新频率 | 每周一 / 周四,2 次/周 |
-| 本次更新 | 2026-04-21 08:30 UTC(smoke test 通过 / 双协议完整落地 / Qwen tokenizer 重 tokenize 进行中 / eval 数据集预下载完成) |
-| 当前阶段 | **P1 · 基础设施搭建**(~95% 完成,差最后一次真实训练) |
+| 本次更新 | 2026-04-21 12:00 UTC(Qwen tokenizer 重 tokenize 完成 / methodology §2.5 易混淆点 / P1 数据就绪,待你放行后开训) |
+| 当前阶段 | **P1 · 基础设施搭建**(数据与管线就绪;**正式训练需你显式确认**) |
 | Owner | bill-lee-mk |
 
 > 本文档是项目的"一页纸"视图。细节见 `docs/methodology.md` 与 `docs/decisions/`。
@@ -21,94 +21,67 @@
 
 | 模块 | 状态 | 备注 |
 |---|---|---|
-| 仓库骨架 | ✅ | 18 个 commit |
+| 仓库骨架 | ✅ | |
 | 存储三层 + 同步脚本 | ✅ | event-driven rsync + audit log |
 | 参考数据 · Cosmopedia v2(raw) | ✅ | 114 GB / 104 shards,本地+NAS 双副本 |
 | 参考数据 · FineWeb-Edu 32 shards(raw) | ✅ | 72 GB,本地+NAS 双副本 |
-| **Conda env**(Python 3.11 + lighteval 0.13 + datasets 3.6 + flash-attn 2.8.3) | ✅ | 8.5 GB,CUDA OK |
-| **评测层**(port + runner) | 🟡 | 代码就绪,5 处 API 适配 bug 已识别并修(uncommitted) |
-| **训练层**(config + launcher + orchestrator,**支持双架构**) | ✅ | dry-run 通过;Llama2-1.82B + Qwen3-1.7B spec 都派发正确;Aim logging 配置注入 |
-| Reference experiment configs · Protocol A(Llama2-1.82B × 2 seeds) | ✅ | seed42 + seed1337(Mistral tokenizer) |
-| Reference experiment configs · Protocol B(Qwen3-1.7B × 2 seeds) | ✅ | seed42 + seed1337(Qwen tokenizer) |
+| **Conda env**(Python 3.11 + lighteval 0.13 + datasets 3.6 + flash-attn 2.8.3) | ✅ | CUDA OK |
+| **评测层**(port + runner) | ✅ | lighteval 0.13 适配已合入;`datasets>=3.6,<4` 已 pin |
+| **训练层**(config + launcher + orchestrator,**支持双架构**) | ✅ | dry-run 通过;Llama2-1.82B + Qwen3-1.7B;Aim 注入 |
+| Reference experiment configs · Protocol A(Llama2-1.82B × 2 seeds) | ✅ | Mistral tokenizer |
+| Reference experiment configs · Protocol B(Qwen3-1.7B × 2 seeds) | ✅ | seed42 + seed1337;Qwen tokenizer |
 | Backbone experiment config · Qwen3 | ✅ | `backbone_fineweb_edu_qwen3` |
-| **Qwen3 nanotron 集成** | ✅ | **发现 nanotron 原生支持 Qwen2 架构**,直接用 `is_qwen2_config: True` 触发内置 Qwen2Model,0 patch 代码 |
-| **Smoke test · cosmo-1b** | ✅ | **12 CSR task 全部通过**,pipeline 端到端验证 |
-| **eval 数据集预下载** | ✅ | 69 configs cached,16 GB in `data/hf_cache/`,训练 eval 时无 HF 429 风险 |
-| **Qwen tokenizer 数据重 tokenize** | 🟡 | 两个后台任务跑中(Cosmopedia v2 + FineWeb-Edu),预计再 ~30 min 完成 |
-| **Tokenized · Cosmopedia v2** | ✅ | **31.5B tokens / 58.76 GiB / 16 .ds shards / 9.2 min** |
-| **Tokenized · FineWeb-Edu backbone** | ✅ | **29B tokens / 54.04 GiB / 16 .ds shards / 8.6 min** |
-| **flash-attn** | ✅ | 2.8.3 已装 |
-| **Smoke test cosmo-1b** | 🟡 | 9 次重试,API 适配问题层层揭露并已修复;最后一次重试因 Shell 挂死未启动 |
+| **Qwen3 nanotron 集成** | ✅ | 内置 `Qwen2Config` / `is_qwen2_config: True`,无自定义 patch |
+| **Smoke test · cosmo-1b** | ✅ | CSR early-signal 端到端验证 |
+| **eval 数据集预下载** | ✅ | `data/hf_cache/` 隔离缓存,降低 HF 429 |
+| **Qwen tokenizer 数据重 tokenize** | ✅ | Cosmopedia v2 **102.26 GiB** + FineWeb-Edu **97.18 GiB**,各 16 `.ds` shards |
+| **Tokenized · Cosmopedia v2(Mistral)** | ✅ | 31.5B tokens / ~60 GiB |
+| **Tokenized · FineWeb-Edu(Mistral)** | ✅ | 29B tokens / ~55 GiB |
+| **flash-attn** | ✅ | 已装 |
 | 合成 pipeline(OpenRouter 路由) | ⏳ | P2 前完成 |
 
 ---
 
 ## 3. 资源现状
 
-| 项 | 占用 |
+| 项 | 占用 / 说明 |
 |---|---|
-| 本地 NVMe | 290 GB / 8.2 TB available(env + raw + tokenized) |
-| NAS 冷备 | 186 GB(raw 参考数据;tokenized 待同步) |
-| GPU | **8 张 H100 全空** ✅(其他用户 Qwen3 训练已结束) |
-| API 花费 | $0(本次没调合成 API) |
+| `data/datasets/`(四套 tokenized 并存) | **约 316 GiB**(Mistral×2 + Qwen×2) |
+| 本地 NVMe | 根分区约 **8.0 TiB 可用**(见 `df`) |
+| NAS 冷备 | `INCEPEDIA_NAS_ROOT` 默认可写;**建议**将 `cosmopedia_v2_reference_qwen` 与 `fineweb_edu_backbone_qwen` 同步上 NAS(见 §6) |
+| GPU | 以机器实时状态为准(`nvitop`) |
+| API 花费 | 合成未大规模启动前 ≈ $0 |
 
 ---
 
-## 4. 本次会话(2026-04-20 → 2026-04-21)发现的 lighteval 0.13 API 改动 + 修复(关键经验)
+## 4. lighteval 0.13 适配要点(归档)
 
-按发生顺序,每个 bug 都通过 smoke test 暴露:
-
-| # | Bug | 修复 | 文件 |
-|---|---|---|---|
-| 1 | nanotron 强制 import flash_attn,在装 flash_attn 前 lighteval import 失败 | 临时卸 nanotron,装 flash-attn 后再装回 | env-level |
-| 2 | `pretrained=` 已重命名为 `model_name=` | runner._model_args() | `eval/runner.py` |
-| 3 | 自定义 task 与 lighteval 0.13 内置同名冲突(hellaswag/piqa/winogrande/...) | 全部加 `incep_` 前缀 | `eval/lighteval_tasks.py` |
-| 4 | MMLU subset 使用 `_` 拼接被解析失败 | 恢复 `incep_mmlu_mc:subset` `:` 分隔(lighteval 把 `:` 视为 subset 分隔符) | `eval/lighteval_tasks.py` |
-| 5 | task spec 格式从 `suite\|task\|fewshot\|truncate` 改为 `task\|fewshot` | `_task_str()` 改为 2 元素 | `eval/lighteval_tasks.py` |
-| 6 | `datasets 4.x` 完全删了 dataset 加载脚本(piqa.py/siqa.py/boolq.py 等都用脚本) | 降到 `datasets<4`(3.6.0) | env-level |
-| 7 | 加 `HF_DATASETS_TRUST_REMOTE_CODE=1`(配合 #6) | runner driver template | `eval/runner.py` |
-
-**这些代码修改都已完成、已测试,但因为 Shell 在最后一轮挂死,未 commit。**
+| # | 问题 | 处理 |
+|---|---|---|
+| 1 | `pretrained=` → `model_name=` | `eval/runner.py` |
+| 2 | 自定义 task 与内置同名 | `incep_` 前缀 |
+| 3 | MMLU subset 分隔符 | `incep_mmlu_mc:subset` |
+| 4 | task 串格式 | `task\|fewshot` |
+| 5 | `datasets 4.x` 脚本数据集 | pin `datasets>=3.6,<4` + `HF_DATASETS_TRUST_REMOTE_CODE=1` |
 
 ---
 
-## 5. ⚠️ 未 commit 的本地改动(下次接力第一件事)
+## 5. 开训前例行
 
-```
-M src/incepedia/eval/lighteval_tasks.py   (incep_ 前缀 + : 分隔 + 2-element task string)
-M src/incepedia/eval/runner.py            (model_name + MMLU regex + 环境变量注入)
-```
-
-降版的 `datasets 3.6.0` 已生效但**没写进 requirements.txt**(还是 `datasets>=2.19`)。
+- `bash scripts/check_setup.sh`(应 **0 失败**;`.env` 建议 `chmod 600`)
+- 你**显式放行**后再启动 nanotron 长训
+- 首次 Protocol B 跑前确认 `experiments/.../config.yaml` 中 `dataset.path` 指向 Qwen 目录
 
 ---
 
-## 6. 下次会话接力(明确步骤)
+## 6. NAS 同步命令(按需)
 
 ```bash
-# 0. shell 恢复后第一件事:commit 本次的 5 个 eval 修复
-cd /home/ubuntu/lilei/projects/Incepedia
-git add src/incepedia/eval/{lighteval_tasks.py,runner.py}
-git diff --cached
-# 检查无误后:
-git commit -m "fix(eval): adapt port+runner to lighteval 0.13 quirks"
-git push
+# Qwen tokenized(新增 ~200 GiB — Protocol B 训练反复读取)
+bash scripts/sync_to_nas.sh dataset cosmopedia_v2_reference_qwen
+bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone_qwen
 
-# 1. 锁 datasets 版本到 requirements.txt
-sed -i 's/^datasets>=.*/datasets>=3.6,<4/' requirements.txt
-git add requirements.txt
-git commit -m "chore(deps): pin datasets<4 (lighteval needs script support)"
-git push
-
-# 2. 跑 smoke test(GPU 已空)
-source /home/ubuntu/miniconda3/etc/profile.d/conda.sh && conda activate incepedia
-nohup bash scripts/run_eval.sh HuggingFaceTB/cosmo-1b experiments/_sanity_cosmo_1b/eval early-signal 200 > /tmp/smoke_run.out 2>&1 &
-# 监控:
-watch -n 30 "tail -3 /tmp/smoke_run.out; nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader | head -8"
-# 预期 ~30-45 min 完成,产出 experiments/_sanity_cosmo_1b/metrics.json
-# 验收:HellaSwag ~50-55%,MMLU cloze ~25-30%,ARC challenge ~30-35%(参考 cosmo-1b 公开数字)
-
-# 3. tokenized 数据同步到 NAS
+# 已有 Mistral 版(若尚未同步)
 bash scripts/sync_to_nas.sh dataset cosmopedia_v2_reference
 bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 ```
@@ -119,33 +92,18 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 
 | 风险 / 问题 | 影响 | 当前状态 |
 |---|---|---|
-| Shell 子进程在长 nohup 后挂死(本会话第 3 次) | Medium | 🟡 仅影响 agent,不影响 user 终端 |
-| GPU 资源共享 | High | 🟢 当前空闲 |
-| lighteval 0.13 API 频繁变化 | Medium | 已识别 5 个适配点(见 §4),修复就绪 |
-| `datasets<4` 与 lighteval 0.13 警告冲突 | Low | 实测运行 OK,仅警告 |
+| Shell 子进程在长任务后挂死 | Medium | 仅影响 agent;用户终端不受影响 |
+| GPU 资源共享 | High | 训前确认独占或配额 |
+| lighteval API 漂移 | Medium | 已 pin 版本 + 自定义 port |
 
 ---
 
-## 8. 本会话(累计)commits
+## 8. 关键文档索引
 
-```
-06497d3 chore(env): pin python 3.11 + lighteval from pypi
-1de3a72 docs: log tokenize progress + GPU blocker in status brief
-c746d96 feat(data): add datatrove tokenizer pipeline for reference data
-d2a6ecd feat(training): add config schema, nanotron launcher, orchestrator
-d7ec352 fix(gitignore): exclude third_party (not submodules)
-5696b4f refactor(eval): adapt port + runner to lighteval 0.13 API
-04bf5e7 docs: add project status brief (twice-weekly update)
-```
-
----
-
-## 9. 关键文档索引
-
-- **方法论详解** → `docs/methodology.md`
-- **ADR 列表** → `docs/decisions/README.md`(6 条)
+- **方法论详解** → `docs/methodology.md`(含 Track 1「24B stable」vs Track 2 backbone「20B」说明)
+- **ADR 列表** → `docs/decisions/README.md`(含 **0007** 双协议)
 - **AI agent 守则** → `AGENTS.md`
-- **存储使用手册** → `README.md` + NAS `README.md`
+- **存储** → `README.md` + NAS `README.md`
 
 ---
 
@@ -153,9 +111,6 @@ d7ec352 fix(gitignore): exclude third_party (not submodules)
 
 | 日期 | 要点 |
 |---|---|
-| 2026-04-20 | 创建,P1 筹备阶段 |
-| 2026-04-20 | 完成环境重建 + eval/training 代码重写 + Cosmopedia v2 tokenize (31.5B tokens) |
-| 2026-04-21 01:30 UTC | FineWeb-Edu tokenize ✅(29B tokens / 54 GiB)+ flash-attn ✅;smoke test 修了 5 个 lighteval 0.13 适配 bug,最后一轮 Shell 挂死未启动;有 2 个文件 uncommitted |
-| 2026-04-21 06:20 UTC | **双协议架构决策落地**(ADR 0007):Llama2-1.82B 作外部锚,Qwen3-1.7B 作工作架构;launcher 重构支持多架构;新增 4 个 reference experiment configs |
-| 2026-04-21 08:00 UTC | **cosmo-1b smoke test 全程跑通**:12 CSR 任务全部产出,pipeline 端到端验证;又修了 5 个 lighteval/datasets 0.13/3.6 适配 bug(model_name/task-name collision/task|N format/datasets-4.x-scripts/BoolQ schema/NCCL watchdog/parser regex) |
-| 2026-04-21 08:30 UTC | **Qwen tokenizer 切换**:Qwen3 Protocol B 改用 Qwen/Qwen2.5-1.5B tokenizer;nanotron 内置 Qwen2Config 原生支持(无需 patch);eval 数据集预下载完成(69 configs,16 GB);Qwen tokenizer 数据重 tokenize 进行中(两个后台任务) |
+| 2026-04-20 | 创建,P1 筹备 |
+| 2026-04-21 | 双协议(ADR 0007)+ Qwen tokenizer 数据就绪 |
+| 2026-04-21 12:00 UTC | **Qwen 重 tokenize 完成**;methodology 增补 §2.5;status 去陈旧「未 commit」条目 |

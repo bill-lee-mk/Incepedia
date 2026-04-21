@@ -82,6 +82,14 @@
 - **20B backbone + 6B cooldown(Track 2)**:backbone 给 cooldown 足够的稳定起点(Hägele et al. 最小 15B);cooldown 占比 23%(6B/26B)在 trapezoidal 最优区间;总 26B token ≈ Track 1 的 30B,两轨 token 量级可比
 - **2 seeds**:FineWeb 论文惯例,噪声降到 ±0.15pp
 
+**易混淆点:Track 1 有 stable=24B,为何共享 backbone 只训 20B(0.5B warmup + 19.5B stable),而不是 24B?**
+
+两轨回答的是**不同科学问题**,分段数字**不是**同一套 LR 日程的简单切片,不能从「cooldown 最多 6B」反推 backbone 必须等于 30B−6B=24B。
+
+- **Track 1(standalone)**:warmup 0.5B + **在目标语料(如 Cosmopedia)上** stable 24B + cooldown 5.5B = **30B**,测的是「纯该语料从头训满这一预算」;其中 24B 是同一条 run 里、**在该语料上保持峰值 LR 的平台段**。
+- **Track 2(seasoning)**:backbone 只在 **FineWeb-Edu** 上跑 warmup 0.5B + stable 19.5B = **20B**,末端 **不设** LR 衰减(`cooldown_tokens=0`),在峰值 LR 结束处存盘;之后的 **6B** 在 **cooldown-fork** 上单独跑,才是「调料语料 + 线性衰减」阶段。
+- **设计意图**:backbone 的 20B 与 Track 1 的 24B **不是**「少训了 4B stable」的疏忽,而是 **角色不同** —— 前者是 web 主干上的前缀终点,后者是合成语料 standalone 全程里的高 LR 平台。两轨用 **20B+6B=26B** 与 **30B** 做**总 token 量级可比**,而非要求 stable 段 token 数一一相等。
+
 ### 2.6 **不做** proxy 小模型
 
 初期需要最高保真度信号,200M/400M 的 scaling 转手到 1.82B 不可靠。宁可每次多等几天。
