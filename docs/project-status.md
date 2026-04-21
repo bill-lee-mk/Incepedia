@@ -103,6 +103,7 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 | **T1** | **FA3 接入 nanotron**(加 `NANOTRON_USE_FA3=1` 开关,保留 FA2 作为 rotary/layer_norm/varlen 的回退;先做 10-step FA2/FA3 对照 benchmark,确认 loss 一致后再推广) | **seed42 跑完后、seed1337 开跑前** | 环境已装 `flash-attn-3 3.0.0`,但 nanotron 0.4 源码只有 FA2 路径,需要改 `nn/attention.py`。FA2 目前 ~99 TFLOPs/GPU 已算健康水位,FA3 预期再 +10-20%。结论写进 ADR 0006 |
 | T2 | nanotron → Aim metrics 桥接 | FA3 开关落地同一批改动 | 目前 Aim UI 是空的,曲线先靠 `grep "iteration:" train.log`;需要把 nanotron logging 接到 `aim/` repo |
 | T3 | 本地 nanotron patch 自动化(rotary / datatrove0.9 / consumption_stats) 写进 `scripts/bootstrap_env.sh` | 下次环境重建前 | 已有 `patches/*.patch`,目前需要手动 `git apply` |
+| T4 | **launcher YAML 与 nanotron 默认值 diff 审计**:写一个 `scripts/lint_nanotron_yaml.py`,把 `build_nanotron_yaml()` dry-run 产物与 nanotron 官方 example(`config_tiny_llama.yaml` / `config_nanoset.yaml`)做 key-level diff,仅列出"**非默认字段**"供人工复核,避免再出现像 `ignore_sanity_checks=False` 这种一行 = 50% 吞吐损失的暗坑。每次升级 `third_party/nanotron` 或改 launcher 时强制跑一次,结果附在 PR/ADR 里 | 下次 nanotron 升级前;或 `launcher.py` 改动 PR 内 | 本次 py-spy 定位的慢路径就是这种"非默认但无警告"的字段意外翻到 True/False |
 
 ---
 
