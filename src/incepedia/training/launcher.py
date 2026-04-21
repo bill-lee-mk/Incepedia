@@ -36,6 +36,8 @@ from incepedia.training.config import ExperimentConfig, Track
 # Protocol A · Llama2-1.82B(reference anchor — aligns with Cosmopedia /
 # SmolLM / FineWeb published numbers; full attention, no GQA, RoPE θ=10000).
 LLAMA2_182B_SPEC = dict(
+    # Flag: tells nanotron this is a Llama family model (triggers LlamaModel).
+    is_llama_config=True,
     hidden_size=2048,
     intermediate_size=8192,
     num_hidden_layers=24,
@@ -44,7 +46,7 @@ LLAMA2_182B_SPEC = dict(
     max_position_embeddings=2048,
     rope_theta=10000.0,
     tie_word_embeddings=False,
-    qkv_bias=False,
+    attention_bias=False,              # nanotron LlamaConfig uses `attention_bias`
     hidden_act="silu",
 )
 
@@ -98,6 +100,20 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
     steps_stable = s.stable_tokens // t.global_batch_tokens
     steps_cooldown = s.cooldown_tokens // t.global_batch_tokens
 
+    # Resolve the tokenized dataset folder.  Config holds a relative path;
+    # nanotron needs an absolute path to the directory that contains the
+    # datatrove `.ds`/`.ds.index`/`.ds.metadata` shards.
+    dataset_folder = Path(cfg.dataset.path)
+    if not dataset_folder.is_absolute():
+        dataset_folder = REPO_ROOT / dataset_folder
+    if (dataset_folder / "tokenized").is_dir():
+        dataset_folder = dataset_folder / "tokenized"
+
+    # Map our short precision code to the names nanotron accepts via its
+    # str→torch.dtype hook.
+    dtype_map = {"bf16": "bfloat16", "fp16": "float16", "fp32": "float32"}
+    model_dtype = dtype_map.get(t.mixed_precision, t.mixed_precision)
+
     return {
         "general": {
             "project": "incepedia",
@@ -115,11 +131,13 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
         },
         "model": {
             "ddp_bucket_cap_mb": 25,
-            "dtype": t.mixed_precision,
+            "dtype": model_dtype,
+            # RandomInit(std) — dacite will build the RandomInit dataclass.
             "init_method": {"std": arch_spec.get("initializer_range", 0.02)},
             "make_vocab_size_divisible_by": 1,
             # nanotron dispatches between LlamaConfig and Qwen2Config by the
-            # presence of `is_qwen2_config: True` inside model_config.
+            # presence of `is_llama_config` / `is_qwen2_config` inside
+            # model_config.  The spec dict we store already sets the right flag.
             "model_config": arch_spec,
         },
         "tokenizer": {
@@ -133,15 +151,21 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "sequence_length": m.seq_len,
             "train_steps": steps_train,
             "val_check_interval": -1,
+            "limit_val_batches": 0,
+            "limit_test_batches": 0,
         },
         "optimizer": {
             "zero_stage": 1,
             "weight_decay": t.weight_decay,
             "clip_grad": t.gradient_clip,
             "accumulate_grad_in_fp32": True,
-            "adam_beta1": 0.9,
-            "adam_beta2": 0.95,
-            "adam_eps": 1.0e-8,
+            "optimizer_factory": {
+                "name": "adamW",
+                "adam_beta1": 0.9,
+                "adam_beta2": 0.95,
+                "adam_eps": 1.0e-8,
+                "torch_adam_is_fused": True,
+            },
             "learning_rate_scheduler": {
                 "learning_rate": s.lr_max,
                 "lr_warmup_steps": steps_warmup,
@@ -152,29 +176,28 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
                 "lr_decay_style": "linear" if s.scheduler == "trapezoidal" else "cosine",
             },
         },
-        "data": {
-            "dataset": {
-                "dataset_overwrite_cache": False,
-                "dataset_processing_num_proc_per_process": 8,
-                "hf_dataset_or_datasets": cfg.dataset.path,
-                "hf_dataset_splits": "train",
-                "text_column_name": "text",
-            },
-            "num_loading_workers": 4,
-            "seed": t.seed,
-        },
+        # Nanotron expects `data_stages: List[DatasetStageArgs]`.  We create a
+        # single stable stage starting at step 1 pointing to the NanosetDatasetsArgs
+        # (datatrove `.ds` shard folder).  Aim/TensorBoard logging is handled
+        # separately (post-processed from the checkpoint logs); the top-level
+        # `logging` key in nanotron only controls verbosity.
+        "data_stages": [
+            {
+                "name": "stable",
+                "start_training_step": 1,
+                "data": {
+                    "dataset": {
+                        "dataset_folder": str(dataset_folder),
+                    },
+                    "num_loading_workers": 4,
+                    "seed": t.seed,
+                },
+            }
+        ],
         "logging": {
             "iteration_step_info_interval": 10,
             "log_level": "info",
             "log_level_replica": "info",
-            # Aim tracker — local SQLite-backed DB, no cloud deps (ADR re: tracking choice)
-            # All runs land under REPO_ROOT/aim/ ; cross-run compare via `aim up`.
-            "aim": {
-                "repo": str(REPO_ROOT / "aim"),
-                "experiment": "incepedia",
-                "log_interval": 10,
-                "run_hash": cfg.exp_id,   # stable hash → same run id across resumes
-            },
         },
         "parallelism": {
             "dp": 8,         # 8 H100s data-parallel
@@ -183,6 +206,8 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "pp_engine": "1f1b",
             "tp_linear_async_communication": False,
             "tp_mode": "ALL_REDUCE",
+            "expert_parallel_size": 1,
+            "context_parallel_size": 1,
         },
     }
 
