@@ -14,7 +14,7 @@
 #   triton         3.4.0            (pulled in by torch 2.8)
 
 # ── Core data / IO ────────────────────────────────────────────────
-datasets>=2.19
+datasets>=3.6,<4              # 4.x removed dataset script support; some lighteval tasks still need it
 pyarrow>=15
 pandas>=2.2
 numpy>=1.26

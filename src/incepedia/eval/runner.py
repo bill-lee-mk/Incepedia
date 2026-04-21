@@ -41,20 +41,22 @@ from incepedia.eval.lighteval_tasks import TASKS_GROUPS
 
 # Map lighteval task (core name) → column in INDEX.parquet.
 # Keep in sync with scripts/index_experiment.py:SCHEMA_COLS.
+# Tasks are prefixed with `incep_` in our port (to avoid collision with
+# lighteval 0.13's built-in tasks of same name).
 _TASK_TO_COLUMN: dict[str, str] = {
-    "hellaswag": "hellaswag",
-    "winogrande": "winogrande",
-    "piqa": "piqa",
-    "siqa": "siqa",
-    "openbookqa": "openbookqa",
-    "arc:easy": "arc_easy",
-    "arc:challenge": "arc_challenge",
-    "commonsense_qa": "commonsense_qa",
-    "boolq": "boolq",
-    "mmlu_pro_cloze": "mmlu_pro_cloze",
-    "mmlu_pro_mc": "mmlu_pro_mc",
-    "trivia_qa": "trivia_qa",
-    "gsm8k": "gsm8k_5shot",
+    "incep_hellaswag": "hellaswag",
+    "incep_winogrande": "winogrande",
+    "incep_piqa": "piqa",
+    "incep_siqa": "siqa",
+    "incep_openbookqa": "openbookqa",
+    "incep_arc_easy": "arc_easy",
+    "incep_arc_challenge": "arc_challenge",
+    "incep_commonsense_qa": "commonsense_qa",
+    "incep_boolq": "boolq",
+    "incep_mmlu_pro_cloze": "mmlu_pro_cloze",
+    "incep_mmlu_pro_mc": "mmlu_pro_mc",
+    "incep_trivia_qa": "trivia_qa",
+    "incep_gsm8k": "gsm8k_5shot",
 }
 
 # lighteval 0.13 exposes fewer per-metric variants; take the first numeric scalar
@@ -75,6 +77,12 @@ _LAUNCHER_TEMPLATE = '''\
 
 Written by incepedia.eval.runner.EvalRunner. Invoked via `accelerate launch`.
 """
+import os
+# datasets 4.x disables loading scripts by default; legacy benchmarks (piqa,
+# siqa, boolq, hellaswag, etc.) need this flag to load.
+os.environ.setdefault("HF_DATASETS_TRUST_REMOTE_CODE", "1")
+os.environ.setdefault("TRUST_REMOTE_CODE", "1")
+
 from lighteval.main_accelerate import accelerate
 
 accelerate(
@@ -114,7 +122,8 @@ class EvalRunner:
     # ── command composition ───────────────────────────────────────────
 
     def _model_args(self) -> str:
-        base = f"pretrained={self.model}"
+        # lighteval 0.13 renamed `pretrained` -> `model_name` in TransformersModelConfig.
+        base = f"model_name={self.model}"
         if self.model_args_extra:
             base = f"{base},{self.model_args_extra}"
         return base
@@ -193,19 +202,20 @@ class EvalRunner:
         for raw_task, metric_dict in per_task.items():
             if not isinstance(metric_dict, dict):
                 continue
-            # raw_task examples: "custom|arc:easy|0", "custom|mmlu_cloze:anatomy|0", "all"
+            # raw_task examples: "incep_arc_easy|0", "incep_mmlu_cloze:anatomy|0", "all"
+            # lighteval 0.13 strips the `suite|` prefix; some versions still emit it.
             if raw_task == "all":
-                # 0.13 often stores an aggregate "all" row; skip, we aggregate ourselves.
+                # Aggregate "all" row sometimes added by lighteval; we aggregate ourselves.
                 continue
-            m = re.match(r"^(?:custom\|)?([^|]+)(?:\|.*)?$", raw_task)
+            m = re.match(r"^(?:[^|]+\|)?([^|]+)(?:\|.*)?$", raw_task)
             task_core = m.group(1) if m else raw_task
             score = _pick_metric(metric_dict)
             if score is None:
                 continue
 
-            if task_core.startswith("mmlu_cloze:"):
+            if task_core.startswith("incep_mmlu_cloze:"):
                 mmlu_cloze_scores.append(score)
-            elif task_core.startswith("mmlu_mc:"):
+            elif task_core.startswith("incep_mmlu_mc:"):
                 mmlu_mc_scores.append(score)
             else:
                 col = _TASK_TO_COLUMN.get(task_core)

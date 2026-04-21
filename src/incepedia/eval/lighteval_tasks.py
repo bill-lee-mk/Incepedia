@@ -227,7 +227,7 @@ _LL_ACC = [Metrics.loglikelihood_acc]  # replaces acc + acc_norm_nospace pair
 
 COMMON_SENSE_REASONING_TASKS = [
     LightevalTaskConfig(
-        name="hellaswag",
+        name="incep_hellaswag",
         prompt_function=hellaswag_prompt,
         hf_repo="Rowan/hellaswag",
         hf_subset="default",
@@ -236,7 +236,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="winogrande",
+        name="incep_winogrande",
         prompt_function=winogrande_prompt,
         hf_repo="allenai/winogrande",
         hf_subset="winogrande_xl",
@@ -245,7 +245,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="piqa",
+        name="incep_piqa",
         prompt_function=piqa_prompt,
         hf_repo="ybisk/piqa",
         hf_subset="plain_text",
@@ -254,7 +254,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="siqa",
+        name="incep_siqa",
         prompt_function=siqa_prompt,
         hf_repo="lighteval/siqa",
         hf_subset="default",
@@ -263,7 +263,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="openbookqa",
+        name="incep_openbookqa",
         prompt_function=openbookqa_prompt,
         hf_repo="allenai/openbookqa",
         hf_subset="main",
@@ -272,7 +272,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="arc:easy",
+        name="incep_arc_easy",
         prompt_function=arc_prompt,
         hf_repo="allenai/ai2_arc",
         hf_subset="ARC-Easy",
@@ -282,7 +282,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="arc:challenge",
+        name="incep_arc_challenge",
         prompt_function=arc_prompt,
         hf_repo="allenai/ai2_arc",
         hf_subset="ARC-Challenge",
@@ -292,7 +292,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="commonsense_qa",
+        name="incep_commonsense_qa",
         prompt_function=commonsense_qa_prompt,
         hf_repo="tau/commonsense_qa",
         hf_subset="default",
@@ -301,7 +301,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="boolq",
+        name="incep_boolq",
         prompt_function=boolq_prompt,
         hf_repo="google/boolq",
         hf_subset="default",
@@ -311,7 +311,7 @@ COMMON_SENSE_REASONING_TASKS = [
         stop_sequence=["\n"],
     ),
     LightevalTaskConfig(
-        name="trivia_qa",
+        name="incep_trivia_qa",
         prompt_function=triviaqa_prompt,
         hf_repo="mandarjoshi/trivia_qa",
         hf_subset="rc.nocontext",
@@ -323,7 +323,7 @@ COMMON_SENSE_REASONING_TASKS = [
         few_shots_select="random_sampling_from_train",
     ),
     LightevalTaskConfig(
-        name="mmlu_pro_cloze",
+        name="incep_mmlu_pro_cloze",
         prompt_function=mmlu_pro_cloze_prompt,
         hf_repo="TIGER-Lab/MMLU-Pro",
         hf_subset="default",
@@ -333,7 +333,7 @@ COMMON_SENSE_REASONING_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="mmlu_pro_mc",
+        name="incep_mmlu_pro_mc",
         prompt_function=mmlu_pro_mc_prompt,
         hf_repo="TIGER-Lab/MMLU-Pro",
         hf_subset="default",
@@ -348,7 +348,7 @@ COMMON_SENSE_REASONING_TASKS = [
 # ─── math-reasoning tasks ──────────────────────────────────────────────
 
 GSM8K = LightevalTaskConfig(
-    name="gsm8k",
+    name="incep_gsm8k",
     prompt_function=gsm8k_prompt,
     hf_repo="openai/gsm8k",
     hf_subset="main",
@@ -372,7 +372,7 @@ MATH_SUBSETS = [
 
 MATH_TASKS = [
     LightevalTaskConfig(
-        name=f"math:{subset}",
+        name=f"incep_math_{subset}",
         prompt_function=math_prompt,
         hf_repo="lighteval/MATH",
         hf_subset=subset,
@@ -408,8 +408,10 @@ MMLU_SUBSETS = [
 
 def _mmlu_task(subset: str, answer_type: str) -> LightevalTaskConfig:
     prompt_fn = mmlu_mc_prompt if answer_type == "mc" else mmlu_cloze_prompt
+    # NOTE: keep `:` between task family and subset — lighteval treats `:` as
+    # the canonical subset separator in task names and looks them up that way.
     return LightevalTaskConfig(
-        name=f"mmlu_{answer_type}:{subset}",
+        name=f"incep_mmlu_{answer_type}:{subset}",
         prompt_function=prompt_fn,
         hf_repo="lighteval/mmlu",
         hf_subset=subset,
@@ -429,7 +431,7 @@ MMLU_TASKS = [
 
 MMLU_STEM_TASKS = [
     LightevalTaskConfig(
-        name="mmlu_stem_mc",
+        name="incep_mmlu_stem_mc",
         prompt_function=mmlu_mc_prompt,
         hf_repo="TIGER-Lab/MMLU-STEM",
         hf_subset="default",
@@ -439,7 +441,7 @@ MMLU_STEM_TASKS = [
         metrics=_LL_ACC,
     ),
     LightevalTaskConfig(
-        name="mmlu_stem_cloze",
+        name="incep_mmlu_stem_cloze",
         prompt_function=mmlu_cloze_prompt,
         hf_repo="TIGER-Lab/MMLU-STEM",
         hf_subset="default",
@@ -461,7 +463,10 @@ TASKS_TABLE: list[LightevalTaskConfig] = (
 
 
 def _task_str(t: LightevalTaskConfig, num_fewshots: int, truncate: int = 1) -> str:
-    return f"custom|{t.name}|{num_fewshots}|{truncate}"
+    # lighteval 0.13 task spec format is `task_name|num_fewshots`.
+    # The legacy `suite|task|fewshot|truncate` 4-element format from old cosmopedia
+    # port was rejected by the new registry (parses on `|`).
+    return f"{t.name}|{num_fewshots}"
 
 
 EARLY_SIGNAL_TASKS: str = ",".join(
