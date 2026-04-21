@@ -52,11 +52,25 @@ pip install -r "$REPO_ROOT/requirements.txt"
 # --- editable install of incepedia package ---
 pip install -e "$REPO_ROOT"
 
-# --- torch with CUDA 12.4 (matches H100 driver 12.8; torch cu130 not yet widely available) ---
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# --- torch with CUDA 12.8 (H100 / Hopper; matches driver 570.x) ---
+# We pin torch==2.8.0 because:
+#   (1) it is the lowest torch release with official cu128 wheels,
+#   (2) lighteval 0.13 supports torch<3.0,
+#   (3) flash_attn_3 stable wheels target cu128+torch2.8 (widest coverage).
+pip install --upgrade "torch==2.8.0" torchvision torchaudio \
+  --index-url https://download.pytorch.org/whl/cu128
 
-# --- lighteval from pypi (latest; see docs/decisions/0006-evaluation-stack-policy.md) ---
-pip install lighteval
+# --- FlashAttention 3 (stable) — Hopper-optimized, ~2x faster than torch SDPA on H100 ---
+# Uses pre-built wheels (requires sm_90 / H100). Pip package: `flash_attn_3`.
+# Import path in Python: `from flash_attn_interface import flash_attn_func`
+# In transformers: `AutoModel.from_pretrained(..., attn_implementation="flash_attention_3")`
+# Does NOT conflict with legacy `flash-attn` (FA2). See docs/decisions/0007-flash-attn-3.md.
+pip install --upgrade "flash_attn_3>=3.0.0,<3.1" \
+  --find-links https://windreamer.github.io/flash-attention3-wheels/cu128_torch280 \
+  --only-binary flash_attn_3
+
+# --- lighteval from pypi (pinned; see docs/decisions/0006-evaluation-stack-policy.md) ---
+pip install "lighteval==0.13.0"
 
 # --- nanotron + datatrove from source (cosmopedia read-only for reference) ---
 THIRD_PARTY_DIR="$REPO_ROOT/third_party"

@@ -2,6 +2,16 @@
 # Core pipeline uses HuggingFace stack (nanotron, lighteval, datatrove) — those
 # are installed separately from source in `scripts/bootstrap_env.sh` because
 # they track fast-moving main branches.
+#
+# GPU stack (also installed by bootstrap_env.sh, listed here for reference):
+#   torch          == 2.8.0+cu128   (official PyTorch wheel, Hopper/H100 optimized)
+#   torchvision    compatible with torch 2.8
+#   torchaudio     compatible with torch 2.8
+#   flash_attn_3   >=3.0.0,<3.1     (FA3 stable, requires H100/sm_90)
+#                                    import path: `from flash_attn_interface import flash_attn_func`
+#                                    benchmark: ~2x faster than torch SDPA on H100 BF16
+#   lighteval      == 0.13.0        (torch<3.0 compatible)
+#   triton         3.4.0            (pulled in by torch 2.8)
 
 # ── Core data / IO ────────────────────────────────────────────────
 datasets>=2.19
