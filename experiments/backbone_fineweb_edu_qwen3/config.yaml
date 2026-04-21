@@ -23,7 +23,7 @@ model:
   arch: qwen3-1.7B
   seq_len: 2048
   tokenizer: Qwen/Qwen2.5-1.5B
-  vocab_size: 151936
+  vocab_size: 151665        # = len(Qwen/Qwen2.5-1.5B tokenizer .get_vocab())
   init_from: null
 
 training:

@@ -62,10 +62,14 @@ ARCHITECTURE_SPECS: dict[str, dict] = {
     "qwen3-1.7B": QWEN3_17B_SPEC,
 }
 
-# vocab_size defaults per architecture (when config.yaml doesn't set it)
+# vocab_size defaults per architecture (when config.yaml doesn't set it).
+# IMPORTANT: must match the *actual* tokenizer's vocab size reported by
+# transformers — nanotron asserts model.vocab_size == dataset.vocab_size where
+# dataset.vocab_size comes from the tokenizer's `get_vocab()` size recorded in
+# the datatrove metadata.
 VOCAB_DEFAULTS: dict[str, int] = {
     "llama2-1.82B": 32000,   # Mistral tokenizer
-    "qwen3-1.7B": 151936,    # Qwen tokenizer (BBPE, 151k vocab)
+    "qwen3-1.7B": 151665,    # Qwen/Qwen2.5-1.5B tokenizer: len(get_vocab()) = 151665
 }
 
 # back-compat alias for any existing import sites
