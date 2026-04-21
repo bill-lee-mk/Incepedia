@@ -1,6 +1,9 @@
-# Track 1 · Standalone reproduction baseline
+# Track 1 · Standalone reproduction baseline · Protocol A (Llama2-1.82B reference anchor)
 # Goal: reproduce cosmopedia v2 scores on the FineWeb 1.82B / 30B-token protocol,
-#       serves as the primary reference point for all Track 1 Incepedia milestones.
+#       serves as the EXTERNAL ANCHOR (ADR 0007) — verifies pipeline correctness
+#       by aligning to SmolLM/FineWeb published numbers (±0.5pp).
+# Pair with seed=1337 for 2-seed averaged baseline.
+# All Incepedia version comparisons run on Protocol B (Qwen3-1.7B) instead.
 #
 # Expected runtime: ~2.1 days on 8×H100 per seed (run 2 seeds for ±0.15pp error bar).
 # Expected compute: 400 H100-hours per seed.

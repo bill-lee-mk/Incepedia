@@ -37,9 +37,18 @@ date: "2026-04-21"
 
 | 阶段 | 目标 | 成功标准 |
 |---|---|---|
-| **P1 · 复现** | 复现 Cosmopedia v2 在 Track 2 + Cosmopedia v1 在 Track 1 的基线 | 分数对齐公开数字 ±0.5pp |
-| **P2 · PoC** | 3B token Incepedia v0.1 | 两轨均持平或超越 Cosmopedia |
-| **P3 · 迭代+扩容** | 10B–30B token Incepedia v1.0 | 两轨显著超越,逼近 SmolLM2 |
+| **P1 · 复现** | 复现 Cosmopedia v2 在 Protocol A(Llama2-1.82B)和 Protocol B(Qwen3-1.7B)上的基线 | Protocol A 分数对齐 SmolLM/FineWeb 公开数字 ±0.5pp;Protocol B 自建基线 |
+| **P2 · PoC** | 3B token Incepedia v0.1,Protocol B 两轨跑通 | 两轨均持平或超越 Cosmopedia |
+| **P3 · 迭代+扩容** | 10B–30B token Incepedia v1.0,Protocol B 主跑;P3 末期 Protocol A 100B 终验 | 两架构两轨均显著超越,逼近 SmolLM2 |
+
+## 2.4 双协议架构(ADR 0007)
+
+| 协议 | 架构 | 作用 | 项目频率 |
+|---|---|---|---|
+| **Protocol A** | Llama2-1.82B(全注意力 / RoPE θ=1e4) | 外部锚 — 对齐 SmolLM/FineWeb 公开数字,验证 pipeline 正确性 | 2 次 |
+| **Protocol B** | Qwen3-style 1.7B(GQA 8 KV / RoPE θ=1e6 / QKV bias) | 工作架构 — 承担所有 Incepedia 版本演进 + 配比 ablation | ~40 次 |
+
+**唯一变量是架构**:tokenizer / 数据 / lr / batch / seeds / 评测脚本两协议完全一致。
 
 ---
 
@@ -158,15 +167,18 @@ date: "2026-04-21"
 
 # 8. 当前在做的:复现 Cosmopedia v2 reference baseline
 
+> **双协议架构**(ADR 0007):每个 Track 的训练在两个架构上分别跑——Protocol A(Llama2-1.82B)只作外部锚 2 次,Protocol B(Qwen3-1.7B)是日常工作架构,承担所有 Incepedia 版本演进。Tokenizer 两协议同用 Mistral-7B-v0.1,确保唯一变量是架构。
+
 ## 8.1 Track 1 · Standalone(独立 corpus 能力)
 
 | 项 | 值 |
 |---|---|
-| 协议 | 1.82B Llama2 从头训 × 30B tokens × 2 seeds,纯数据集(零 backbone) |
-| 单次墙钟 | ~2.1 天(8×H100)× 2 seeds = ~4.2 天 |
-| Milestone scale-up | 1.82B × 100B × 1 seed = ~7 天 |
+| Protocol A 协议 | 1.82B Llama2(全注意力 / RoPE θ=1e4 / 无 bias)从头训 × 30B tokens × 2 seeds |
+| Protocol B 协议 | 1.7B Qwen3-style(GQA 8 KV / RoPE θ=1e6 / QKV bias)从头训 × 30B tokens × 2 seeds |
+| 单次墙钟(A / B) | ~2.1 天 / ~2.0 天(8×H100)× 2 seeds = ~4.2 / ~4.0 天 |
+| Milestone scale-up | 1.82B / 1.7B × 100B × 1 seed = ~7 / ~6.5 天 |
 | 适用问题 | "数据集 X 作为独立 pretraining corpus,和数据集 Y 相比如何?" |
-| 论文血脉 | Cosmopedia‑v1 / Cosmo‑1B / FineWeb ablation 协议的直接继承 |
+| 论文血脉 | Cosmopedia‑v1 / Cosmo‑1B / FineWeb ablation 协议的直接继承(Protocol A);Qwen3 论文(Protocol B) |
 
 ## 8.2 Track 2 · Seasoning(decay 调料能力)
 
@@ -181,25 +193,35 @@ date: "2026-04-21"
 
 ## 8.3 当前阶段的具体实验单
 
-**Track 1(里程碑级):**
+**Track 1 · Protocol A(Llama2-1.82B 外部锚,仅 2 次):**
 
 | exp_id | 协议 | seeds | 墙钟 | 目的 |
 |---|---|---|---|---|
-| `exp_ref_cosmopedia_v2_seed42` | 1.82B × 30B × 纯 Cosmopedia v2 | 2 | 4.2 天 | reference 基线,对齐 SmolLM 公布数字 |
-| `exp_inc_v01` | 1.82B × 30B × 纯 Incepedia v0.1 | 2 | 4.2 天 | 首次对标 |
-| `exp_inc_v02` | 1.82B × 30B × 纯 Incepedia v0.2 | 2 | 4.2 天 | 第二轮迭代 |
-| `exp_inc_v03` | 1.82B × 30B × 纯 Incepedia v0.3 | 2 | 4.2 天 | 第三轮 |
-| `exp_inc_v10` | 1.82B × 30B × 纯 Incepedia v1.0 | 2 | 4.2 天 | 最终版本 |
-| `exp_inc_v10_scale` | 1.82B × 100B × 纯 Incepedia v1.0 | 1 | 7 天 | 放大验收 |
+| `exp_ref_cosmopedia_v2_seed42` | Llama2-1.82B × 30B × 纯 Cosmopedia v2 | 1 | 2.1 天 | 外部锚 seed1 |
+| `exp_ref_cosmopedia_v2_seed1337` | Llama2-1.82B × 30B × 纯 Cosmopedia v2 | 1 | 2.1 天 | 外部锚 seed2,与 seed42 平均 = 对齐 SmolLM |
 
-**Track 2(Seasoning,共享 backbone + cooldown forks):**
+**Track 1 · Protocol B(Qwen3-1.7B 工作架构,承担所有版本演进):**
 
 | exp_id | 协议 | seeds | 墙钟 | 目的 |
 |---|---|---|---|---|
-| `backbone_fineweb_edu` | 1.82B × 20B 纯 FineWeb-Edu | 1 | 1.4 天 | **一次性**,之后所有 fork 共用 |
-| `fork_cosmopedia_v2` | cooldown 6B × Cosmopedia v2 | 2 | 20 h | Track 2 基线 |
-| `fork_inc_v01` | cooldown 6B × Incepedia v0.1 | 2 | 20 h | 首次配料对比 |
-| `fork_*_variant_*` × ~30 | cooldown 6B × 各种变量 | 1 | 10 h each | C1–C16 每条 1–2 次 + 配比扫描 |
+| `exp_ref_cosmopedia_v2_qwen3_seed42` | Qwen3-1.7B × 30B × 纯 Cosmopedia v2 | 1 | 2.0 天 | Protocol B 基线 seed1 |
+| `exp_ref_cosmopedia_v2_qwen3_seed1337` | Qwen3-1.7B × 30B × 纯 Cosmopedia v2 | 1 | 2.0 天 | Protocol B 基线 seed2 |
+| `exp_inc_v01_qwen3_seed{42,1337}` | Qwen3-1.7B × 30B × Incepedia v0.1 | 2 | 4.0 天 | 首次对标 |
+| `exp_inc_v02_qwen3_*` | Qwen3-1.7B × 30B × Incepedia v0.2 | 2 | 4.0 天 | 第二轮迭代 |
+| `exp_inc_v03_qwen3_*` | Qwen3-1.7B × 30B × Incepedia v0.3 | 2 | 4.0 天 | 第三轮 |
+| `exp_inc_v10_qwen3_*` | Qwen3-1.7B × 30B × Incepedia v1.0 | 2 | 4.0 天 | 最终版本 |
+| `exp_inc_v10_qwen3_scale` | Qwen3-1.7B × 100B × Incepedia v1.0 | 1 | 6.5 天 | 放大验收 |
+
+**Track 2 · Protocol B(Seasoning,共享 backbone + cooldown forks):**
+
+| exp_id | 协议 | seeds | 墙钟 | 目的 |
+|---|---|---|---|---|
+| `backbone_fineweb_edu_qwen3` | Qwen3-1.7B × 20B 纯 FineWeb-Edu | 1 | 1.3 天 | **一次性**,之后所有 fork 共用 |
+| `fork_cosmopedia_v2_qwen3` | cooldown 6B × Cosmopedia v2 | 2 | 18 h | Track 2 基线 |
+| `fork_inc_v01_qwen3` | cooldown 6B × Incepedia v0.1 | 2 | 18 h | 首次配料对比 |
+| `fork_*_variant_*` × ~30 | cooldown 6B × 各种变量 | 1 | 9 h each | C1–C16 每条 1–2 次 + 配比扫描 |
+
+**项目训练总墙钟**:Protocol A ~4.2 天 + Protocol B ~40 天 ≈ **~44 天**(8×H100,3 个月日历内有充裕余量)
 
 ---
 

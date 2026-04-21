@@ -1,0 +1,54 @@
+# Track 1 · Standalone reproduction baseline · Protocol B (Qwen3-1.7B working) · seed 42
+# Goal: establish Cosmopedia v2 baseline on the working architecture used for
+#       all Incepedia version comparisons (per ADR 0007).
+# Pair with seed=1337 for 2-seed averaged Protocol B reference.
+#
+# Expected runtime: ~2.0 days on 8×H100 per seed (Qwen3-1.7B is ~5% smaller
+# than Llama2-1.82B by parameter count, slightly faster per token).
+
+exp_id: exp_ref_cosmopedia_v2_qwen3_seed42
+stage: P1
+track: 1
+branch_from: null
+
+dataset:
+  id: cosmopedia_v2_reference
+  path: data/datasets/cosmopedia_v2_reference
+  tokens: 28_000_000_000
+  notes: >
+    Same tokenized data as Protocol A (Mistral tokenizer), per ADR 0007's
+    "tokenizer is fixed across protocols" decision — only architecture varies.
+
+model:
+  arch: qwen3-1.7B
+  seq_len: 2048
+  tokenizer: mistralai/Mistral-7B-v0.1
+  vocab_size: 32000
+  init_from: null
+
+training:
+  train_tokens: 30_000_000_000
+  global_batch_tokens: 1_310_720
+  micro_batch_size: 4
+  seed: 42
+  mixed_precision: bf16
+  gradient_clip: 1.0
+  weight_decay: 0.1
+  schedule:
+    scheduler: trapezoidal
+    lr_max: 3.0e-4
+    lr_min: 0.0
+    warmup_tokens: 500_000_000
+    stable_tokens: 24_000_000_000
+    cooldown_tokens: 5_500_000_000
+
+eval:
+  task_group: early-signal
+  max_samples: 1000
+  eval_every_tokens: 2_000_000_000
+  final_eval: true
+
+notes: >
+  Protocol B Cosmopedia v2 baseline on Qwen3-style 1.7B architecture.
+  This is the comparison reference for ALL Incepedia version evaluations
+  (exp_inc_v01_qwen3_seedX onwards). Pair with seed1337 for 2-seed average.

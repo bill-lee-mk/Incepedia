@@ -30,24 +30,57 @@ import yaml
 from incepedia.training.config import ExperimentConfig, Track
 
 
-# ── Llama-1.82B architecture (from FineWeb ablation paper) ────────────
-LLAMA_182B_SPEC = dict(
+# ── Architecture specs (see ADR 0007 for dual-protocol decision) ──────
+
+# Protocol A · Llama2-1.82B(reference anchor — aligns with Cosmopedia /
+# SmolLM / FineWeb published numbers; full attention, no GQA, RoPE θ=10000).
+LLAMA2_182B_SPEC = dict(
     hidden_size=2048,
     intermediate_size=8192,
     num_hidden_layers=24,
     num_attention_heads=16,
-    num_key_value_heads=16,   # full attention (not GQA) to match FineWeb
+    num_key_value_heads=16,            # full attention (not GQA)
     max_position_embeddings=2048,
     rope_theta=10000.0,
     tie_word_embeddings=False,
+    qkv_bias=False,
+    hidden_act="silu",
 )
+
+# Protocol B · Qwen3-style 1.7B(working architecture — GQA + Qwen RoPE +
+# QKV bias; ~1.64B params; canonical spec lives in nanotron_qwen.QWEN3_17B_SPEC).
+from incepedia.training.nanotron_qwen import QWEN3_17B_SPEC as _QWEN3_SPEC  # noqa: E402
+
+QWEN3_17B_SPEC = dict(_QWEN3_SPEC)  # local copy so launcher is self-contained when read
+
+ARCHITECTURE_SPECS: dict[str, dict] = {
+    "llama2-1.82B": LLAMA2_182B_SPEC,
+    "qwen3-1.7B": QWEN3_17B_SPEC,
+}
+
+# back-compat alias for any existing import sites
+LLAMA_182B_SPEC = LLAMA2_182B_SPEC
 
 
 def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
-    """Render our ExperimentConfig into nanotron's expected YAML schema."""
+    """Render our ExperimentConfig into nanotron's expected YAML schema.
+
+    Architecture is dispatched via `cfg.model.arch`:
+      - `llama2-1.82B` → stock nanotron Llama config (Protocol A reference)
+      - `qwen3-1.7B`   → patched nanotron config with QKV bias + Qwen RoPE
+                          (Protocol B working; requires `nanotron_qwen` patch
+                          loaded by trainer entry point)
+    """
     m = cfg.model
     t = cfg.training
     s = t.schedule
+
+    if m.arch not in ARCHITECTURE_SPECS:
+        raise ValueError(
+            f"Unknown arch '{m.arch}'. Known: {list(ARCHITECTURE_SPECS)}. "
+            f"See ADR 0007 to add new architectures."
+        )
+    arch_spec = dict(ARCHITECTURE_SPECS[m.arch])
 
     # Nanotron uses "train_steps" not tokens. Convert:
     steps_train = t.train_tokens // t.global_batch_tokens
@@ -73,15 +106,14 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
         "model": {
             "ddp_bucket_cap_mb": 25,
             "dtype": t.mixed_precision,
-            "init_method": {"std": 0.02},
+            "init_method": {"std": arch_spec.get("initializer_range", 0.02)},
             "make_vocab_size_divisible_by": 1,
             "model_config": {
                 "bos_token_id": 1,
                 "eos_token_id": 2,
-                "hidden_act": "silu",
                 "pad_token_id": None,
                 "vocab_size": m.vocab_size,
-                **LLAMA_182B_SPEC,
+                **arch_spec,
             },
         },
         "tokenizer": {

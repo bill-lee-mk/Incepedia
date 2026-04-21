@@ -35,11 +35,23 @@
 
 | | **Track 1 · Standalone** | **Track 2 · Seasoning** |
 |---|---|---|
-| 协议 | 1.82B Llama2 从头训 × 30B tokens × 2 seeds | 共享 backbone(FineWeb-Edu × 20B)+ cooldown-fork × 6B tokens |
+| 协议 | 1.82B Llama2 / 1.7B Qwen3 从头训 × 30B tokens × 2 seeds | 共享 backbone(FineWeb-Edu × 20B)+ cooldown-fork × 6B tokens |
 | 答什么 | "数据集 X 作为独立 pretraining corpus,比 Y 强吗?" | "数据集 X 作为 decay 阶段调料,比 Y 强吗?" |
-| 单次墙钟 | ~4.2 天(2 seeds) | backbone 一次 1.4 天 + 每 fork ~10 h (1 seed) / ~20 h (2 seeds) |
+| 单次墙钟(Llama2) | ~4.2 天(2 seeds) | backbone 1.4 天 + 每 fork ~10 h |
+| 单次墙钟(Qwen3) | ~4.0 天(2 seeds) | backbone 1.3 天 + 每 fork ~9 h |
 | 典型用途 | 版本 milestone 验收 | 日常参数/配比 ablation |
 | 对应论文 | Cosmo-1B / FineWeb / Phi-1 | SmolLM2 stage-4 decay、Hägele et al. 2024 |
+
+### 2.3 双协议架构(详见 ADR 0007)
+
+**两条评测轨道 × 两个架构 = 双协议矩阵**:
+
+| 协议 | 架构 | 作用 | 频率 |
+|---|---|---|---|
+| **Protocol A** | Llama2-1.82B(全注意力 / RoPE θ=10000 / 无 bias) | **外部锚** — 验证 pipeline,对齐 SmolLM/FineWeb 公开数字 | 全项目 2 次(Cosmopedia v2 × 2 seeds) |
+| **Protocol B** | Qwen3-style 1.7B(GQA 8 KV / RoPE θ=1e6 / QKV bias) | **工作架构** — 所有日常 ablation + Incepedia 版本演进 | Track 1 milestones 6 + Track 2 backbone 1 + forks ~33 |
+
+**关键不变项**:两协议共用 Mistral-7B-v0.1 tokenizer、同一份 tokenized 数据、同 lr / batch / seeds、同 lighteval port。**唯一变量是架构本身**,delta 可解释为纯架构效应。
 
 ### 2.3 选择规则(自适应)
 
@@ -202,6 +214,8 @@
 - **0003** · 多档生成器路由
 - **0004** · 双轨自适应评测协议
 - **0005** · 项目 scope:独立 corpus + decay 调料双场景
+- **0006** · Evaluation stack policy(lighteval 跟随 latest)
+- **0007** · 双协议架构(Llama2-1.82B 锚 + Qwen3-1.7B 主力)
 
 ---
 

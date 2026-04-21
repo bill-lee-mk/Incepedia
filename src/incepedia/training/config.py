@@ -41,9 +41,17 @@ class DatasetSpec(BaseModel):
 
 
 class ModelSpec(BaseModel):
-    """Architecture spec. Llama2-1.82B is the fixed ablation standard."""
+    """Architecture spec. See ADR 0007 for the dual-protocol decision.
 
-    arch: Literal["llama2-1.82B"] = "llama2-1.82B"
+    - `llama2-1.82B`: Protocol A (reference anchor), aligns with
+      Cosmopedia/SmolLM/FineWeb published numbers.
+    - `qwen3-1.7B`: Protocol B (working architecture), modern + GQA + Qwen RoPE.
+
+    Tokenizer is fixed across both architectures (`mistralai/Mistral-7B-v0.1`)
+    so that the only variable between protocols is the architecture itself.
+    """
+
+    arch: Literal["llama2-1.82B", "qwen3-1.7B"] = "llama2-1.82B"
     seq_len: int = 2048
     tokenizer: str = "mistralai/Mistral-7B-v0.1"
     vocab_size: int = 32000
