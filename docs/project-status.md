@@ -96,6 +96,14 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 | GPU 资源共享 | High | 训前确认独占或配额 |
 | lighteval API 漂移 | Medium | 已 pin 版本 + 自定义 port |
 
+### TODO 队列(按优先级)
+
+| # | 任务 | 触发时机 | 备注 |
+|---|---|---|---|
+| **T1** | **FA3 接入 nanotron**(加 `NANOTRON_USE_FA3=1` 开关,保留 FA2 作为 rotary/layer_norm/varlen 的回退;先做 10-step FA2/FA3 对照 benchmark,确认 loss 一致后再推广) | **seed42 跑完后、seed1337 开跑前** | 环境已装 `flash-attn-3 3.0.0`,但 nanotron 0.4 源码只有 FA2 路径,需要改 `nn/attention.py`。FA2 目前 ~99 TFLOPs/GPU 已算健康水位,FA3 预期再 +10-20%。结论写进 ADR 0006 |
+| T2 | nanotron → Aim metrics 桥接 | FA3 开关落地同一批改动 | 目前 Aim UI 是空的,曲线先靠 `grep "iteration:" train.log`;需要把 nanotron logging 接到 `aim/` repo |
+| T3 | 本地 nanotron patch 自动化(rotary / datatrove0.9 / consumption_stats) 写进 `scripts/bootstrap_env.sh` | 下次环境重建前 | 已有 `patches/*.patch`,目前需要手动 `git apply` |
+
 ---
 
 ## 8. 关键文档索引
@@ -114,3 +122,4 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 | 2026-04-20 | 创建,P1 筹备 |
 | 2026-04-21 | 双协议(ADR 0007)+ Qwen tokenizer 数据就绪 |
 | 2026-04-21 12:00 UTC | **Qwen 重 tokenize 完成**;methodology 增补 §2.5;status 去陈旧「未 commit」条目 |
+| 2026-04-21 10:25 UTC | **seed42 正式开跑**:8×H100、~65K tok/s、~99 TFLOPs/GPU、ETA ≈ 6h20m;路上修了 8 个兼容性坑(nanotron 入口 / YAML schema / vocab / rotary-FA28 / datatrove09 / consumption_stats / ZeRO-0 / grouped_gemm+pybind11),3 条 nanotron 本地 patch 放在 `patches/`;登记 TODO T1 FA3 接入 |
