@@ -159,7 +159,12 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "limit_test_batches": 0,
         },
         "optimizer": {
-            "zero_stage": 1,
+            # zero_stage=0 (pure DP). 1.7B fits easily per H100 in bf16.
+            # Nanotron's ZeRO-1 + fp32-grad-accum path hits an unfinished
+            # `reduce_scatter` branch in `gradient_accumulator.get_fp32_accum_hook`
+            # (raises NotImplementedError).  Staying at stage 0 sidesteps it
+            # and matches Cosmo-1B's published setup.
+            "zero_stage": 0,
             "weight_decay": t.weight_decay,
             "clip_grad": t.gradient_clip,
             "accumulate_grad_in_fp32": True,
