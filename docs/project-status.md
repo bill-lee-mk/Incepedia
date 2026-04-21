@@ -98,12 +98,12 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 
 ### TODO 队列(按优先级)
 
-| # | 任务 | 触发时机 | 备注 |
+| # | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| **T1** | **FA3 接入 nanotron**(加 `NANOTRON_USE_FA3=1` 开关,保留 FA2 作为 rotary/layer_norm/varlen 的回退;先做 10-step FA2/FA3 对照 benchmark,确认 loss 一致后再推广) | **seed42 跑完后、seed1337 开跑前** | 环境已装 `flash-attn-3 3.0.0`,但 nanotron 0.4 源码只有 FA2 路径,需要改 `nn/attention.py`。FA2 目前 ~99 TFLOPs/GPU 已算健康水位,FA3 预期再 +10-20%。结论写进 ADR 0006 |
-| T2 | nanotron → Aim metrics 桥接 | FA3 开关落地同一批改动 | 目前 Aim UI 是空的,曲线先靠 `grep "iteration:" train.log`;需要把 nanotron logging 接到 `aim/` repo |
-| T3 | 本地 nanotron patch 自动化(rotary / datatrove0.9 / consumption_stats) 写进 `scripts/bootstrap_env.sh` | 下次环境重建前 | 已有 `patches/*.patch`,目前需要手动 `git apply` |
-| T4 | **launcher YAML 与 nanotron 默认值 diff 审计**:写一个 `scripts/lint_nanotron_yaml.py`,把 `build_nanotron_yaml()` dry-run 产物与 nanotron 官方 example(`config_tiny_llama.yaml` / `config_nanoset.yaml`)做 key-level diff,仅列出"**非默认字段**"供人工复核,避免再出现像 `ignore_sanity_checks=False` 这种一行 = 50% 吞吐损失的暗坑。每次升级 `third_party/nanotron` 或改 launcher 时强制跑一次,结果附在 PR/ADR 里 | 下次 nanotron 升级前;或 `launcher.py` 改动 PR 内 | 本次 py-spy 定位的慢路径就是这种"非默认但无警告"的字段意外翻到 True/False |
+| **T1** | FA3 接入 nanotron(`NANOTRON_USE_FA3=1` 开关,默认 OFF;FA2 作为 rotary/layer_norm/varlen 的后端不变) | ✅ **实现完成**(ADR 0008、`patches/nanotron_fa3_optional_switch.patch`、import 测试通过);**对照 benchmark 待跑**(seed42 baseline 跑完后再做) | 验收项:50-step FA2 vs FA3 loss 差 ≤1e-3 相对、吞吐 ≥ +10%。验收前禁止把默认翻成 FA3 |
+| T2 | nanotron → Aim metrics 桥接 | ✅ **实现完成**(orchestrator 自动拉起 `scripts/tail_train_log_to_aim.py` 侧车,每实验独立 Aim Run) | 正式 nanotron 侧原生桥接待上游实现,目前用 log-tail 方式,已足够画曲线 |
+| T3 | 三条本地 nanotron patch 写进 `scripts/bootstrap_env.sh` | ✅ **实现完成**(idempotent `git apply --check`,不会重复打) | `patches/nanotron_{rotary_flash_attn28,datatrove09_dataset,consumption_stats_local,fa3_optional_switch}.patch` |
+| T4 | `scripts/lint_nanotron_yaml.py`:launcher YAML vs nanotron 默认值 diff 审计 | ✅ **实现完成**(allow-list 35 项,`exit=0` 当无意外非默认字段) | 每次升级 nanotron / 改 launcher 的 PR 内必跑 |
 
 ---
 
@@ -124,3 +124,5 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 | 2026-04-21 | 双协议(ADR 0007)+ Qwen tokenizer 数据就绪 |
 | 2026-04-21 12:00 UTC | **Qwen 重 tokenize 完成**;methodology 增补 §2.5;status 去陈旧「未 commit」条目 |
 | 2026-04-21 10:25 UTC | **seed42 正式开跑**:8×H100、~65K tok/s、~99 TFLOPs/GPU、ETA ≈ 6h20m;路上修了 8 个兼容性坑(nanotron 入口 / YAML schema / vocab / rotary-FA28 / datatrove09 / consumption_stats / ZeRO-0 / grouped_gemm+pybind11),3 条 nanotron 本地 patch 放在 `patches/`;登记 TODO T1 FA3 接入 |
+| 2026-04-21 ~10:50 UTC | **py-spy 定位慢路径**:`ignore_sanity_checks=False` 让每步调一次 `torch.testing.assert_close` 跨 rank → ~50% 吞吐损失。修回默认 True(commit `d7d0059`) |
+| 2026-04-21 ~11:30 UTC | **T1-T4 四条 TODO 全部落地**:FA3 switch(`NANOTRON_USE_FA3=1`,默认 OFF;ADR 0008;patch 留档)、Aim sidecar 接入 orchestrator、bootstrap 自动 apply patches + 装 grouped_gemm/pybind11、`scripts/lint_nanotron_yaml.py`(35 非默认字段全 allow-listed) |

@@ -1,0 +1,25 @@
+diff --git a/src/nanotron/data/nemo_dataset/blendable_dataset.py b/src/nanotron/data/nemo_dataset/blendable_dataset.py
+index 96c49fe..1e36178 100644
+--- a/src/nanotron/data/nemo_dataset/blendable_dataset.py
++++ b/src/nanotron/data/nemo_dataset/blendable_dataset.py
+@@ -182,12 +182,16 @@ class BlendableDataset(torch.utils.data.Dataset):
+         Returns:
+             dict: Dictionary containing samples and tokens consumed per dataset
+         """
++        # Local (non-S3) paths are fully supported here: consumption stats only
++        # need a stable key per dataset.  Upstream nanotron hard-codes S3 but
++        # leaves a `TODO: remove this` — we just use whatever path the
++        # underlying dataset exposes (local or S3).
+         stats = {}
+         for dataset_idx, dataset in enumerate(self.datasets):
+-            assert (
+-                "s3" in dataset.folder_path
+-            ), "Only S3 paths are supported for consumption stats"  # TODO: remove this
+-            stats[dataset.folder_path] = {"tokens": self.consumed_tokens[dataset_idx]}
++            key = getattr(dataset, "folder_path", None) or getattr(
++                dataset, "data_folder", f"dataset_{dataset_idx}"
++            )
++            stats[str(key)] = {"tokens": self.consumed_tokens[dataset_idx]}
+         return stats
+ 
+ 

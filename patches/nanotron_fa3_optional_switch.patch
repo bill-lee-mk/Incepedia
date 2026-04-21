@@ -1,0 +1,53 @@
+diff --git a/src/nanotron/nn/attention.py b/src/nanotron/nn/attention.py
+index 350418b..00ad142 100644
+--- a/src/nanotron/nn/attention.py
++++ b/src/nanotron/nn/attention.py
+@@ -38,6 +38,48 @@ def is_flash_attn_greater_or_equal_2_10():
+ 
+ if is_flash_attn_greater_or_equal_2_10():
+     from flash_attn.flash_attn_interface import flash_attn_func
++
++# ── Optional FA3 (Hopper) backend ──────────────────────────────────────────
++# Enable by setting environment variable NANOTRON_USE_FA3=1 before launch.
++# Notes / caveats:
++#   * FA3's Python package is `flash_attn_interface` (not `flash_attn.*`); it
++#     only exports `flash_attn_func`.  Nanotron's varlen / rotary / layer_norm
++#     paths still use FA2, so those modules stay loaded.
++#   * FA3's signature differs from FA2: no `dropout_p`, added descale/softcap/
++#     pack_gqa args.  We build a thin adapter that forwards the fields FA3
++#     actually supports and asserts dropout == 0 (pretraining default).
++#   * Disabled by default — first enable for benchmarking, then roll out per
++#     TODO T1 / ADR 0006.
++import os as _os
++
++_USE_FA3 = _os.environ.get("NANOTRON_USE_FA3", "0") == "1"
++_fa3_func = None
++if _USE_FA3:
++    try:
++        from flash_attn_interface import flash_attn_func as _fa3_func
++    except ImportError:
++        _fa3_func = None
++
++
++def _fa3_adapter(q, k, v, *, dropout_p=0.0, softmax_scale=None,
++                 causal=False, window_size=(-1, -1), return_attn_probs=False, **_ignored):
++    assert dropout_p == 0.0, "NANOTRON_USE_FA3: FA3 does not support dropout (pretraining uses 0)"
++    out = _fa3_func(
++        q, k, v,
++        softmax_scale=softmax_scale,
++        causal=causal,
++        window_size=window_size,
++        return_attn_probs=return_attn_probs,
++    )
++    # FA3 with return_attn_probs=False returns a tensor; with True returns tuple.
++    return out[0] if isinstance(out, tuple) and not return_attn_probs else out
++
++
++if _USE_FA3 and _fa3_func is not None:
++    # Route the FA2 symbol through FA3 so downstream code continues to call
++    # `flash_attn_func(...)` transparently.  The shape / semantics match for
++    # the no-dropout pretraining path we use.
++    flash_attn_func = _fa3_adapter  # noqa: F811 — intentional rebind
+ # adapted from transformers.integrations.flex_attention.flex_attention_forward
+ def flex_attention_forward(
+     module: torch.nn.Module,

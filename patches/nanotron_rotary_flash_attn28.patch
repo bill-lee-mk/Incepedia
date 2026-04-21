@@ -1,0 +1,26 @@
+diff --git a/src/nanotron/nn/rotary.py b/src/nanotron/nn/rotary.py
+index 109e59f..5c53d20 100644
+--- a/src/nanotron/nn/rotary.py
++++ b/src/nanotron/nn/rotary.py
+@@ -158,14 +158,20 @@ class FlashRotaryEmbedding(OrigFlashRotaryEmbedding):
+         device=None,
+         seq_len_interpolation_factor=None,
+     ):
++        # NOTE: newer flash-attn (>=2.8) removed the `pos_idx_in_fp32` kwarg
++        # from `RotaryEmbedding.__init__` (signature is now
++        # `(dim, base, interleaved, scale_base, device)`). nanotron's own
++        # `_update_cos_sin_cache` below still consults `self.pos_idx_in_fp32`,
++        # so we keep the attribute on *this* class but do NOT forward it to
++        # the flash-attn base constructor.
+         super().__init__(
+             dim,
+             base,
+             interleaved,
+             scale_base,
+-            pos_idx_in_fp32,
+             device,
+         )
++        self.pos_idx_in_fp32 = pos_idx_in_fp32
+         self.seq_len_interpolation_factor = seq_len_interpolation_factor
+ 
+     def _update_cos_sin_cache(self, seqlen, device=None, dtype=None):

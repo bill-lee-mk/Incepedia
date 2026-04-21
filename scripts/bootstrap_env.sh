@@ -92,6 +92,39 @@ clone_or_pull https://github.com/huggingface/cosmopedia.git   "$THIRD_PARTY_DIR/
 pip install -e "$THIRD_PARTY_DIR/nanotron"  || echo "[warn] nanotron install failed — retry manually"
 pip install -e "$THIRD_PARTY_DIR/datatrove" || echo "[warn] datatrove install failed — retry manually"
 
+# --- extra build-deps nanotron pulls in at import time ---
+# grouped_gemm is imported unconditionally by nanotron's MoE module.
+# pybind11 is needed for nanotron's nemo_dataset C++ helpers makefile.
+pip install pybind11
+pip install --no-build-isolation "git+https://github.com/fanshiqing/grouped_gemm@main" \
+  || echo "[warn] grouped_gemm install failed — MoE path will not import"
+
+# --- auto-apply local nanotron patches (idempotent) ---
+# TODO T3 landed: the patches below are required for nanotron 0.4 to run on
+# our environment.  Upstream issues (one-liners each):
+#   * flash-attn 2.8+ removed `pos_idx_in_fp32` from RotaryEmbedding.__init__
+#   * datatrove 0.9 renamed several TokenizedBytesFolderDataset kwargs
+#   * BlendableDataset.get_consumption_stats hard-asserts S3 paths
+# Each patch is small, self-contained, and `git apply` is idempotent via
+# `--reverse --check` pre-flight: we only apply if not already applied.
+PATCH_DIR="$REPO_ROOT/patches"
+if [[ -d "$PATCH_DIR" ]] && compgen -G "$PATCH_DIR/nanotron_*.patch" > /dev/null; then
+  echo "[patch] applying local nanotron patches from $PATCH_DIR"
+  for p in "$PATCH_DIR"/nanotron_*.patch; do
+    # Skip if already applied (reverse-check succeeds).
+    if git -C "$THIRD_PARTY_DIR/nanotron" apply --reverse --check "$p" >/dev/null 2>&1; then
+      echo "  - already applied: $(basename "$p")"
+      continue
+    fi
+    if git -C "$THIRD_PARTY_DIR/nanotron" apply --check "$p" >/dev/null 2>&1; then
+      git -C "$THIRD_PARTY_DIR/nanotron" apply "$p"
+      echo "  + applied: $(basename "$p")"
+    else
+      echo "  ! cannot apply (context mismatch): $(basename "$p") — inspect manually"
+    fi
+  done
+fi
+
 echo
 echo "[done] To activate:    conda activate $ENV_NAME"
 echo "[done] To verify:      bash scripts/check_setup.sh"

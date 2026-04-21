@@ -44,7 +44,45 @@ def run_pipeline(cfg: ExperimentConfig, *, eval_only: bool, dry_run: bool) -> in
     # 2. Training (unless eval-only)
     if not eval_only:
         from incepedia.training.launcher import launch_training
-        rc = launch_training(cfg, dry_run=dry_run)
+
+        # Auto-spawn the train.log → Aim sidecar so Aim UI gets live curves
+        # without modifying nanotron itself (TODO T2 — stopgap until a proper
+        # nanotron → Aim hook lands in upstream).  The sidecar tails the same
+        # train.log we already tee to disk, so it adds ~zero overhead.
+        sidecar_proc = None
+        if not dry_run:
+            # Drop any stale hash cache so each training run gets its own Aim
+            # Run (otherwise we'd append to the previous run's history).
+            aim_repo = REPO_ROOT / "aim"
+            stale_hash = aim_repo / f".sidecar_{cfg.exp_id}.hash"
+            if stale_hash.exists():
+                stale_hash.unlink()
+
+            aim_log = exp_dir / "aim_sidecar.log"
+            sidecar_cmd = [
+                sys.executable, str(REPO_ROOT / "scripts" / "tail_train_log_to_aim.py"),
+                cfg.exp_id,
+            ]
+            print(f"[orchestrator] === start Aim sidecar ===")
+            print(f"[orchestrator] $ {' '.join(sidecar_cmd)} > {aim_log}")
+            sidecar_proc = subprocess.Popen(
+                sidecar_cmd,
+                stdout=aim_log.open("ab"),
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            print(f"[orchestrator] sidecar pid={sidecar_proc.pid}")
+
+        try:
+            rc = launch_training(cfg, dry_run=dry_run)
+        finally:
+            if sidecar_proc is not None and sidecar_proc.poll() is None:
+                sidecar_proc.terminate()
+                try:
+                    sidecar_proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    sidecar_proc.kill()
+                print(f"[orchestrator] sidecar stopped")
         if rc != 0 and not dry_run:
             print(f"[orchestrator] training failed with code {rc}", file=sys.stderr)
             return rc

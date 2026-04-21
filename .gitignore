@@ -65,3 +65,6 @@ Thumbs.db
 *~
 .sync_in_progress
 third_party/
+experiments/*/nanotron.yaml
+experiments/*/train.log
+experiments/*/aim_sidecar.log
