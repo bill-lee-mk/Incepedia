@@ -212,11 +212,21 @@ def launch_training(cfg: ExperimentConfig, num_processes: int = 8, dry_run: bool
     yaml_path = cfg.exp_dir / "nanotron.yaml"
     yaml_path.write_text(yaml.safe_dump(nt_yaml))
 
+    # Nanotron's CLI entry is `run_train.py` at the repo root, NOT the
+    # `nanotron.trainer` module (that only defines classes — invoking it with
+    # `-m` loads and exits cleanly with no training).  We vendor nanotron under
+    # `third_party/nanotron/`, so we call that file directly.
+    run_train_py = REPO_ROOT / "third_party" / "nanotron" / "run_train.py"
+    if not run_train_py.exists():
+        raise FileNotFoundError(
+            f"Cannot find nanotron entry script at {run_train_py}. "
+            "Verify third_party/nanotron is present (git submodule / clone)."
+        )
     cmd = [
         "accelerate", "launch",
         f"--num_processes={num_processes}",
         "--mixed_precision", cfg.training.mixed_precision,
-        "-m", "nanotron.trainer",
+        str(run_train_py),
         "--config-file", str(yaml_path),
     ]
     train_log = cfg.exp_dir / "train.log"
