@@ -49,7 +49,8 @@ LLAMA2_182B_SPEC = dict(
 )
 
 # Protocol B · Qwen3-style 1.7B(working architecture — GQA + Qwen RoPE +
-# QKV bias; ~1.64B params; canonical spec lives in nanotron_qwen.QWEN3_17B_SPEC).
+# QKV bias; ~1.64B params; uses nanotron's built-in Qwen2Config via the
+# `is_qwen2_config: True` flag. See src/incepedia/training/nanotron_qwen.py).
 from incepedia.training.nanotron_qwen import QWEN3_17B_SPEC as _QWEN3_SPEC  # noqa: E402
 
 QWEN3_17B_SPEC = dict(_QWEN3_SPEC)  # local copy so launcher is self-contained when read
@@ -57,6 +58,12 @@ QWEN3_17B_SPEC = dict(_QWEN3_SPEC)  # local copy so launcher is self-contained w
 ARCHITECTURE_SPECS: dict[str, dict] = {
     "llama2-1.82B": LLAMA2_182B_SPEC,
     "qwen3-1.7B": QWEN3_17B_SPEC,
+}
+
+# vocab_size defaults per architecture (when config.yaml doesn't set it)
+VOCAB_DEFAULTS: dict[str, int] = {
+    "llama2-1.82B": 32000,   # Mistral tokenizer
+    "qwen3-1.7B": 151936,    # Qwen tokenizer (BBPE, 151k vocab)
 }
 
 # back-compat alias for any existing import sites
@@ -82,6 +89,8 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             f"See ADR 0007 to add new architectures."
         )
     arch_spec = dict(ARCHITECTURE_SPECS[m.arch])
+    # Inject vocab_size (from config.yaml, else arch default)
+    arch_spec["vocab_size"] = m.vocab_size if m.vocab_size else VOCAB_DEFAULTS[m.arch]
 
     # Nanotron uses "train_steps" not tokens. Convert:
     steps_train = t.train_tokens // t.global_batch_tokens
@@ -109,13 +118,9 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "dtype": t.mixed_precision,
             "init_method": {"std": arch_spec.get("initializer_range", 0.02)},
             "make_vocab_size_divisible_by": 1,
-            "model_config": {
-                "bos_token_id": 1,
-                "eos_token_id": 2,
-                "pad_token_id": None,
-                "vocab_size": m.vocab_size,
-                **arch_spec,
-            },
+            # nanotron dispatches between LlamaConfig and Qwen2Config by the
+            # presence of `is_qwen2_config: True` inside model_config.
+            "model_config": arch_spec,
         },
         "tokenizer": {
             "tokenizer_max_length": m.seq_len,

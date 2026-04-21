@@ -6,17 +6,17 @@ track: 1
 branch_from: null
 
 dataset:
-  id: cosmopedia_v2_reference
-  path: data/datasets/cosmopedia_v2_reference
+  id: cosmopedia_v2_reference_qwen
+  path: data/datasets/cosmopedia_v2_reference_qwen
   tokens: 28_000_000_000
   notes: >
-    Same tokenized data as Protocol A (Mistral tokenizer), per ADR 0007.
+    Re-tokenized with Qwen2.5 tokenizer (151k BBPE vocab) for Protocol B.
 
 model:
   arch: qwen3-1.7B
   seq_len: 2048
-  tokenizer: mistralai/Mistral-7B-v0.1
-  vocab_size: 32000
+  tokenizer: Qwen/Qwen2.5-1.5B
+  vocab_size: 151936
   init_from: null
 
 training:

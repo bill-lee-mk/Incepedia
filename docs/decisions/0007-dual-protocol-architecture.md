@@ -26,8 +26,8 @@
 
   ### Protocol B · Qwen3-style 1.7B(working architecture)
   - **架构**:Qwen3-style,hidden 2048 / layers 24 / heads 16 / GQA(8 KV heads)/ MLP intermediate 8192 / RoPE θ=1000000 / **QKV bias=True**
-  - **训练框架**:`nanotron` + `incepedia/training/nanotron_qwen.py`(我方 patch 模块,~150 行,subclass `LlamaModel` 加上 QKV bias 与 Qwen RoPE)
-  - **Tokenizer**:**沿用 `mistralai/Mistral-7B-v0.1`**(同 Protocol A,**保持双协议唯一变量是架构**)
+  - **训练框架**:`nanotron`,**直接用内置的 `Qwen2Config` / `Qwen2Model`**(实测发现 nanotron 已原生支持 Qwen 架构含 `attention_bias`,无需写 patch)。`src/incepedia/training/nanotron_qwen.py` 只保留 spec 字典 + `is_qwen2_config: True` 触发内置 Qwen2Model。
+  - **Tokenizer**:**用 `Qwen/Qwen2.5-1.5B` 原生 tokenizer(151k BBPE vocab)**。原计划沿用 Mistral 已在 commit `c427011` 落地,但用户决策后改为"各架构用自己的 tokenizer"让 Qwen3 发挥其 vocab 设计。**代价**:Cosmopedia v2 + FineWeb-Edu 需用 Qwen tokenizer 重 tokenize(~10 min 后台任务);**收益**:Qwen 架构在自己的 tokenizer 上的 benchmark 上限更高,且 vocab embedding 层不会成为"伪学习对象"。
   - **作用**:所有日常 ablation + Incepedia 版本演进 + 最终发布数字
   - **频率**:Track 1 milestone × 6 + Track 2 backbone(1)+ Track 2 forks(~33)
 
@@ -41,13 +41,18 @@
   ```
 
   ### 不变项
-  - **Tokenizer**:两协议同用 Mistral-7B-v0.1。理由:
-    - 唯一变量是架构,delta 可解释为纯架构效应
-    - 数据 0 重 tokenize 成本(已 tokenized 的 Cosmopedia v2 / FineWeb-Edu 直接服务两协议)
-    - 损失 < 0.5pp 的 tokenizer-fit 优化(Qwen3 native 151k vocab 在英文上仅边际优于 Mistral 32k)
-  - **训练框架**:两协议同用 nanotron(Protocol B 加 patch 模块)
+  - **训练框架**:两协议同用 nanotron(Llama2 用内置 LlamaConfig,Qwen3 用内置 Qwen2Config)
   - **评测**:两协议同用 lighteval + 我方 port(`src/incepedia/eval/lighteval_tasks.py`)
-  - **数据 / 配比 / lr / global batch / seeds**:两协议同设置,严格控制变量
+  - **数据内容**:Cosmopedia v2 + FineWeb-Edu 的源数据完全相同,只是 tokenize 到两种 vocab
+  - **训练超参**:lr / global batch / seeds / seq_len / schedule 两协议严格同设置
+  - **评测口径**:两协议的 lighteval 任务 / metric / few-shot 数 / sample 数完全相同
+
+  ### 变项(按 ADR 决策)
+  - **架构**:Llama2-1.82B vs Qwen3-style 1.7B(本 ADR 主要决策)
+  - **Tokenizer**:Mistral-7B-v0.1 vs Qwen/Qwen2.5-1.5B(子决策,2026-04-21 更新)
+    - 架构 + 对应 native tokenizer 成对变化,delta 解释为"整体架构包"效应
+    - 好处:每个架构发挥设计最优
+    - 代价:delta 不能拆解为"纯架构"与"纯 tokenizer"的贡献,但这个细分在我们的科学问题下并不关键(我们只关心 Incepedia 是否在每种部署组合下都胜过 Cosmopedia)
 
 - **Alternatives considered**:
   1. **单 Llama2-1.82B**(原方案,ADR 0004 默认):稳定可对齐,但 narrative 偏弱,modern 相关性低。否决。
@@ -85,7 +90,8 @@
   | Track 2 backbone | — | ~1.4 天 | Qwen3 一次 |
   | Track 2 forks(33 × 1 seed × 6B) | — | ~13 天 | 共享 backbone |
   | **项目训练总墙钟** | **~4.4 天** | **~40 天** | 双协议合计 ~44 天 |
-  | nanotron Qwen patch 工程一次性 | — | ~0.5 天 | ADR 通过后 |
+  | nanotron Qwen 集成工程 | — | **0**(原生支持) | 原计划半天 patch,实测不需要 |
+  | Qwen tokenizer 重 tokenize | — | ~10 min | 后台任务,不占训练墙钟 |
 
 - **Related**:
   - ADR 0002(ablation 作为唯一质量指标)

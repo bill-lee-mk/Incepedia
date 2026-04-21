@@ -11,19 +11,19 @@ track: 1   # backbone training itself is standalone-style; subsequent forks are 
 branch_from: null
 
 dataset:
-  id: fineweb_edu_backbone
-  path: data/datasets/fineweb_edu_backbone
+  id: fineweb_edu_backbone_qwen
+  path: data/datasets/fineweb_edu_backbone_qwen
   tokens: 30_000_000_000
   notes: >
-    Tokenized from data/reference/fineweb_edu_dedup/ (32 shards / Mistral
-    tokenizer / 54 GB / 29B tokens / 16 .ds shards).
-    We use first 20B tokens via nanotron's consumed-samples mechanism.
+    Re-tokenized from data/reference/fineweb_edu_dedup/ (32 shards) with
+    Qwen2.5 tokenizer (151k BBPE) for Protocol B.
+    Use first 20B tokens via nanotron's consumed-samples mechanism.
 
 model:
   arch: qwen3-1.7B
   seq_len: 2048
-  tokenizer: mistralai/Mistral-7B-v0.1
-  vocab_size: 32000
+  tokenizer: Qwen/Qwen2.5-1.5B
+  vocab_size: 151936
   init_from: null
 
 training:
