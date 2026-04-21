@@ -10,10 +10,15 @@ data/datasets/
 data/raw_generations/
 data/reference/
 data/tokenizers/
+data/hf_cache/
 data/**/*.parquet
 data/**/*.arrow
 data/**/*.bin
 !data/**/.gitkeep
+
+# smoke test artifacts (we track metrics.json explicitly, not the big raw outputs)
+experiments/_sanity_*/eval/
+experiments/_sanity_*/ckpt/
 
 # ── 实验产物(仅 ckpt 和 eval raw 不入 git,其余 config/metrics 入) ──
 experiments/**/ckpt/

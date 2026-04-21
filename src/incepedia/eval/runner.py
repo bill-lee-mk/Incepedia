@@ -82,6 +82,11 @@ import os
 # siqa, boolq, hellaswag, etc.) need this flag to load.
 os.environ.setdefault("HF_DATASETS_TRUST_REMOTE_CODE", "1")
 os.environ.setdefault("TRUST_REMOTE_CODE", "1")
+# Isolate our HF dataset cache from the shared system cache — the server is
+# multi-tenant and system cache may contain `datasets` 4.x-format info files
+# that our pinned 3.6 cannot parse (e.g. "Feature type 'List'" error).
+os.environ.setdefault("HF_DATASETS_CACHE", {hf_datasets_cache!r})
+os.environ.setdefault("HF_HOME", {hf_home!r})
 
 from lighteval.main_accelerate import accelerate
 
@@ -134,6 +139,9 @@ class EvalRunner:
         return TASKS_GROUPS[self.task_group]
 
     def _write_driver(self, workdir: Path) -> Path:
+        from incepedia.config import DATA_DIR
+        hf_cache_root = DATA_DIR / "hf_cache"
+        hf_cache_root.mkdir(parents=True, exist_ok=True)
         driver = workdir / "run_lighteval_driver.py"
         driver.write_text(
             _LAUNCHER_TEMPLATE.format(
@@ -142,6 +150,8 @@ class EvalRunner:
                 custom_tasks=str(self.custom_tasks_path),
                 output_dir=str(self.output_dir),
                 max_samples=self.max_samples,
+                hf_datasets_cache=str(hf_cache_root / "datasets"),
+                hf_home=str(hf_cache_root / "hf_home"),
             )
         )
         return driver
@@ -203,12 +213,11 @@ class EvalRunner:
             if not isinstance(metric_dict, dict):
                 continue
             # raw_task examples: "incep_arc_easy|0", "incep_mmlu_cloze:anatomy|0", "all"
-            # lighteval 0.13 strips the `suite|` prefix; some versions still emit it.
+            # lighteval 0.13 format is "task_name|num_fewshots" ; strip the fewshot suffix.
             if raw_task == "all":
                 # Aggregate "all" row sometimes added by lighteval; we aggregate ourselves.
                 continue
-            m = re.match(r"^(?:[^|]+\|)?([^|]+)(?:\|.*)?$", raw_task)
-            task_core = m.group(1) if m else raw_task
+            task_core = raw_task.split("|")[0]
             score = _pick_metric(metric_dict)
             if score is None:
                 continue

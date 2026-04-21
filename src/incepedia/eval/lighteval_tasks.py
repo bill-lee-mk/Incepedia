@@ -115,11 +115,17 @@ def commonsense_qa_prompt(line, task_name: str | None = None) -> Doc:
 
 
 def boolq_prompt(line, task_name: str | None = None) -> Doc:
+    # Modern `google/boolq` uses `answer` (bool) instead of legacy `label` (int).
+    # Handle both schemas for forward/backward compat.
+    if "answer" in line:
+        gold = int(bool(line["answer"]))
+    else:
+        gold = int(line["label"])
     return Doc(
         task_name=task_name,
         query=f"{line['passage']}\nQuestion: {line['question'].capitalize()}?\nAnswer:",
         choices=[" No", " Yes"],
-        gold_index=int(line["label"]),
+        gold_index=gold,
     )
 
 

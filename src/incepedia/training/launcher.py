@@ -27,6 +27,7 @@ from pathlib import Path
 
 import yaml
 
+from incepedia.config import REPO_ROOT
 from incepedia.training.config import ExperimentConfig, Track
 
 
@@ -161,6 +162,14 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "iteration_step_info_interval": 10,
             "log_level": "info",
             "log_level_replica": "info",
+            # Aim tracker — local SQLite-backed DB, no cloud deps (ADR re: tracking choice)
+            # All runs land under REPO_ROOT/aim/ ; cross-run compare via `aim up`.
+            "aim": {
+                "repo": str(REPO_ROOT / "aim"),
+                "experiment": "incepedia",
+                "log_interval": 10,
+                "run_hash": cfg.exp_id,   # stable hash → same run id across resumes
+            },
         },
         "parallelism": {
             "dp": 8,         # 8 H100s data-parallel

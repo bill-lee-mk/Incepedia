@@ -1,0 +1,21 @@
+{
+  "model": "HuggingFaceTB/cosmo-1b",
+  "task_group": "csr-only",
+  "num_processes": 1,
+  "max_samples": 100,
+  "wall_seconds": 133.4,
+  "raw_results_json": "experiments/_sanity_cosmo_1b/eval/results/HuggingFaceTB/cosmo-1b/results_2026-04-21T07-40-46.776694.json",
+  "openbookqa": 0.21,
+  "mmlu_pro_cloze": 0.13,
+  "siqa": 0.39,
+  "boolq": 0.65,
+  "arc_easy": 0.54,
+  "arc_challenge": 0.35,
+  "hellaswag": 0.41,
+  "piqa": 0.78,
+  "commonsense_qa": 0.25,
+  "winogrande": 0.58,
+  "mmlu_pro_mc": 0.14,
+  "trivia_qa": 0.02,
+  "smoke_test": true
+}
