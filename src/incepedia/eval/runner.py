@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from incepedia.config import REPO_ROOT
 from incepedia.eval.lighteval_tasks import TASKS_GROUPS
 
@@ -72,11 +74,7 @@ _METRIC_PREFERENCE = (
     "pass@1",
 )
 
-_LAUNCHER_TEMPLATE = '''\
-"""Auto-generated lighteval driver. Do not edit.
-
-Written by incepedia.eval.runner.EvalRunner. Invoked via `accelerate launch`.
-"""
+_COMMON_ENV_PREAMBLE = '''\
 import os
 # datasets 4.x disables loading scripts by default; legacy benchmarks (piqa,
 # siqa, boolq, hellaswag, etc.) need this flag to load.
@@ -94,7 +92,12 @@ os.environ.setdefault("HF_HOME", {hf_home!r})
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+'''
 
+
+_LAUNCHER_TEMPLATE = '''\
+"""Auto-generated lighteval driver (HF accelerate backend). Do not edit."""
+{preamble}
 from lighteval.main_accelerate import accelerate
 
 accelerate(
@@ -105,6 +108,63 @@ accelerate(
     max_samples={max_samples!r},
     save_details=False,
 )
+'''
+
+
+# Driver for nanotron-checkpoint evaluation.  Uses lighteval's native nanotron
+# backend (NanotronLightevalModel) which loads sharded safetensors directly —
+# no HF format conversion needed.  Distributed launch uses torchrun.
+_NANOTRON_LAUNCHER_TEMPLATE = '''\
+"""Auto-generated lighteval driver (nanotron backend). Do not edit."""
+{preamble}
+import yaml
+from yaml import SafeLoader
+from nanotron.config import (
+    GeneralArgs, ModelArgs, TokenizerArgs, get_config_from_dict, get_config_from_file,
+)
+from lighteval.logging.evaluation_tracker import EvaluationTracker
+from lighteval.models.nanotron import FullNanotronConfig, LightEvalConfig
+from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
+
+ckpt_yaml = {ckpt_yaml!r}
+lighteval_yaml = {lighteval_yaml!r}
+
+with open(ckpt_yaml) as f:
+    nanotron_yaml = yaml.load(f, Loader=SafeLoader)
+
+model_config, tokenizer_config, general_config = [
+    get_config_from_dict(
+        nanotron_yaml[key], config_class=cls,
+        skip_unused_config_keys=True, skip_null_keys=True,
+    )
+    for key, cls in [("model", ModelArgs), ("tokenizer", TokenizerArgs), ("general", GeneralArgs)]
+]
+lighteval_config = get_config_from_file(lighteval_yaml, config_class=LightEvalConfig)
+nanotron_config = FullNanotronConfig(lighteval_config, model_config, tokenizer_config, general_config)
+
+evaluation_tracker = EvaluationTracker(
+    output_dir=lighteval_config.logging.output_dir,
+    save_details=lighteval_config.logging.save_details,
+    nanotron_run_info=nanotron_config.nanotron_general,
+)
+pipeline_parameters = PipelineParameters(
+    launcher_type=ParallelismManager.NANOTRON,
+    job_id=os.environ.get("SLURM_JOB_ID", 0),
+    nanotron_checkpoint_path=ckpt_yaml,
+    dataset_loading_processes=lighteval_config.tasks.dataset_loading_processes,
+    custom_tasks_directory=lighteval_config.tasks.custom_tasks,
+    num_fewshot_seeds=1,
+    max_samples=lighteval_config.tasks.max_samples,
+)
+pipeline = Pipeline(
+    tasks=lighteval_config.tasks.tasks,
+    pipeline_parameters=pipeline_parameters,
+    evaluation_tracker=evaluation_tracker,
+    model_config=nanotron_config,
+)
+pipeline.evaluate()
+pipeline.show_results()
+pipeline.save_and_push_results()
 '''
 
 
@@ -145,25 +205,88 @@ class EvalRunner:
             raise KeyError(f"Unknown task_group '{self.task_group}'. Known: {list(TASKS_GROUPS)}")
         return TASKS_GROUPS[self.task_group]
 
+    def _is_nanotron_ckpt(self) -> bool:
+        """Heuristic: a nanotron checkpoint dir contains both `config.yaml`
+        and a `model/` subdir of sharded safetensors."""
+        p = Path(self.model)
+        return p.is_dir() and (p / "config.yaml").is_file() and (p / "model").is_dir()
+
+    def _preamble(self, hf_cache_root: Path) -> str:
+        return _COMMON_ENV_PREAMBLE.format(
+            hf_datasets_cache=str(hf_cache_root / "datasets"),
+            hf_home=str(hf_cache_root / "hf_home"),
+        )
+
+    def _write_lighteval_yaml(self, workdir: Path) -> Path:
+        """Render a LightEvalConfig YAML for the nanotron backend."""
+        cfg = {
+            "logging": {
+                "output_dir": str(self.output_dir),
+                "save_details": False,
+                "push_to_hub": False,
+                "push_to_tensorboard": False,
+                "public_run": False,
+            },
+            "tasks": {
+                "tasks": self._tasks_arg(),
+                "custom_tasks": str(self.custom_tasks_path),
+                "max_samples": self.max_samples,
+                "dataset_loading_processes": 1,   # serial per-rank to avoid 429
+            },
+            "parallelism": {
+                "dp": self.num_processes,         # eval is dp-only
+                "pp": 1,
+                "tp": 1,
+                "pp_engine": "1f1b",
+                "tp_mode": "ALL_REDUCE",
+                "tp_linear_async_communication": False,
+                "expert_parallel_size": 1,
+                "context_parallel_size": 1,
+            },
+            "batch_size": 0,
+        }
+        yaml_path = workdir / "lighteval_config.yaml"
+        yaml_path.write_text(yaml.safe_dump(cfg))
+        return yaml_path
+
     def _write_driver(self, workdir: Path) -> Path:
         from incepedia.config import DATA_DIR
         hf_cache_root = DATA_DIR / "hf_cache"
         hf_cache_root.mkdir(parents=True, exist_ok=True)
         driver = workdir / "run_lighteval_driver.py"
-        driver.write_text(
-            _LAUNCHER_TEMPLATE.format(
-                model_args=self._model_args(),
-                tasks=self._tasks_arg(),
-                custom_tasks=str(self.custom_tasks_path),
-                output_dir=str(self.output_dir),
-                max_samples=self.max_samples,
-                hf_datasets_cache=str(hf_cache_root / "datasets"),
-                hf_home=str(hf_cache_root / "hf_home"),
+
+        if self._is_nanotron_ckpt():
+            ckpt_yaml = str(Path(self.model) / "config.yaml")
+            lighteval_yaml = str(self._write_lighteval_yaml(workdir))
+            driver.write_text(
+                _NANOTRON_LAUNCHER_TEMPLATE.format(
+                    preamble=self._preamble(hf_cache_root),
+                    ckpt_yaml=ckpt_yaml,
+                    lighteval_yaml=lighteval_yaml,
+                )
             )
-        )
+        else:
+            driver.write_text(
+                _LAUNCHER_TEMPLATE.format(
+                    preamble=self._preamble(hf_cache_root),
+                    model_args=self._model_args(),
+                    tasks=self._tasks_arg(),
+                    custom_tasks=str(self.custom_tasks_path),
+                    output_dir=str(self.output_dir),
+                    max_samples=self.max_samples,
+                )
+            )
         return driver
 
     def build_command(self, driver_path: Path) -> list[str]:
+        if self._is_nanotron_ckpt():
+            # Nanotron's distributed init expects torchrun, not accelerate.
+            return [
+                "torchrun",
+                f"--nproc_per_node={self.num_processes}",
+                f"--master_port={self.main_process_port}",
+                str(driver_path),
+            ]
         return [
             "accelerate", "launch",
             f"--num_processes={self.num_processes}",
