@@ -99,19 +99,23 @@ _LAUNCHER_TEMPLATE = '''\
 """Auto-generated lighteval driver (HF accelerate backend). Do not edit."""
 {preamble}
 
-# Disable lighteval 0.13's broken SampleCache (KeyError: TaskID(...) on
-# multi-task / multi-rank runs).  We don't need cross-run sample caching for
-# one-shot evaluations; just bypass the wrapper.
+# Disable lighteval 0.13's SampleCache entirely — its cache layer is buggy
+# (KeyError: TaskID on multi-task; writes Parquet dumps inside the model
+# directory).  We do not need cross-run sample caching for one-shot evals.
 import lighteval.utils.cache_management as _cm
-def _no_cache(self, docs, task_ids, sampling_method):
-    # Return a list of "no cached result" markers; lighteval treats None as
-    # "must compute fresh".  Length must match docs.
-    return [None] * len(docs)
-_cm.SampleCache.get_samples_from_cache = _no_cache
-def _no_store(self, *a, **kw): pass
-for fn in ("store_samples", "store_samples_in_cache", "save"):
-    if hasattr(_cm.SampleCache, fn):
-        setattr(_cm.SampleCache, fn, _no_store)
+class _NoOpSampleCache:
+    def __init__(self, *a, **kw): pass
+    def get_samples_from_cache(self, docs, task_ids, sampling_method):
+        return [None] * len(docs)
+    def __getattr__(self, name):
+        # Anything else: silently no-op (returns a no-op callable).
+        return lambda *a, **kw: None
+_cm.SampleCache = _NoOpSampleCache
+# Also disable any cache decorator so we skip the cache wrapper entirely.
+def _passthrough(func):
+    return func
+if hasattr(_cm, "cache_decorator"):
+    _cm.cache_decorator = lambda *a, **kw: _passthrough
 
 from lighteval.main_accelerate import accelerate
 
@@ -239,7 +243,10 @@ class EvalRunner:
 
     def _model_args(self) -> str:
         # lighteval 0.13 renamed `pretrained` -> `model_name` in TransformersModelConfig.
-        base = f"model_name={self.model}"
+        # batch_size=4 keeps OOM at bay on 1.7B / seq=2048 / 8×H100 (lighteval
+        # multiplies batch by max_choices_per_sample; 4 × 10 ≈ 40 effective
+        # samples per step).  dtype=bfloat16 matches our training dtype.
+        base = f"model_name={self.model},batch_size=4,dtype=bfloat16"
         if self.model_args_extra:
             base = f"{base},{self.model_args_extra}"
         return base
