@@ -249,10 +249,36 @@ class EvalRunner:
         yaml_path.write_text(yaml.safe_dump(cfg))
         return yaml_path
 
+    def _prefetch_tokenizer(self, hf_home: Path) -> None:
+        """Pre-warm HF cache for the model's tokenizer so OFFLINE mode works.
+
+        OFFLINE mode is required to avoid the lighteval-datasets 429 storm,
+        but it also blocks tokenizer download.  We download the tokenizer once
+        here (single repo, not rate-limited) before subprocesses go offline.
+        """
+        if not self._is_nanotron_ckpt():
+            return
+        try:
+            import yaml as _yaml
+            ckpt_yaml_text = (Path(self.model) / "config.yaml").read_text()
+            ckpt_cfg = _yaml.safe_load(ckpt_yaml_text)
+            tok_name = (ckpt_cfg.get("tokenizer") or {}).get("tokenizer_name_or_path")
+            if not tok_name:
+                return
+            import os
+            os.environ.setdefault("HF_HOME", str(hf_home))
+            from transformers import AutoTokenizer
+            print(f"[eval] pre-fetching tokenizer {tok_name} into {hf_home}", file=sys.stderr)
+            AutoTokenizer.from_pretrained(tok_name)
+        except Exception as e:
+            print(f"[eval] tokenizer pre-fetch failed (non-fatal): {e}", file=sys.stderr)
+
     def _write_driver(self, workdir: Path) -> Path:
         from incepedia.config import DATA_DIR
         hf_cache_root = DATA_DIR / "hf_cache"
         hf_cache_root.mkdir(parents=True, exist_ok=True)
+        # Pre-cache the tokenizer BEFORE any subprocess sets HF_HUB_OFFLINE=1.
+        self._prefetch_tokenizer(hf_home=hf_cache_root / "hf_home")
         driver = workdir / "run_lighteval_driver.py"
 
         if self._is_nanotron_ckpt():
