@@ -87,6 +87,13 @@ os.environ.setdefault("TRUST_REMOTE_CODE", "1")
 # that our pinned 3.6 cannot parse (e.g. "Feature type 'List'" error).
 os.environ.setdefault("HF_DATASETS_CACHE", {hf_datasets_cache!r})
 os.environ.setdefault("HF_HOME", {hf_home!r})
+# Force OFFLINE: datasets are pre-downloaded by scripts/prefetch_eval_datasets.py.
+# Lighteval otherwise pings HF Hub `/api/datasets/.../tree/` for every task ×
+# every rank, hitting the 500-req / 5-min IP rate limit (HTTP 429) and crashing
+# the eval mid-launch (observed 2026-04-21 on the seed42 final eval).
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from lighteval.main_accelerate import accelerate
 

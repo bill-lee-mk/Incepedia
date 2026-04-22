@@ -48,8 +48,11 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m|\[(?:1;3[0-9]|2;3|0)[0-9;]*m")
 # An iteration line looks like:
 #   04/21 10:23:57 [INFO|DP=0]: iteration: 131 / 22888 | consumed_tokens: 8.59M | ...
 ITER_RE = re.compile(r"iteration:\s*(\d+)\s*/\s*(\d+)")
-# `key: value` pair.  value may end with K / M / G or carry scientific notation.
-FIELD_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*):\s*([0-9eE+\-\.]+)\s*([KMGT]?)")
+# `key: value` pair.  value may end with K / M / B / G / T or carry scientific
+# notation.  `B` (billions) is what nanotron's human-format emits for
+# `consumed_tokens >= 1e9` — we MUST recognise it or curves silently collapse
+# to ~1 once the run crosses 1B tokens (visible on Aim as a vertical drop).
+FIELD_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*):\s*([0-9eE+\-\.]+)\s*([KMBGT]?)")
 
 # Names we don't want to push to Aim:
 #  - iteration / global_batch_size: already encoded in the step counter or run const
@@ -57,8 +60,10 @@ FIELD_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*):\s*([0-9eE+\-\.]+)\s*([KMGT]?)"
 #    numeric regex would misread as just the hour part; skip to avoid confusion
 DROP = {"iteration", "global_batch_size", "eta"}
 
-# Units → multiplier for suffix parsing.
-UNIT_MULT = {"": 1.0, "K": 1e3, "M": 1e6, "G": 1e9, "T": 1e12}
+# Units → multiplier for suffix parsing.  Nanotron's human-format prints `B`
+# for billions (10^9), distinct from giga `G` which it never uses.  We accept
+# both to be safe.
+UNIT_MULT = {"": 1.0, "K": 1e3, "M": 1e6, "B": 1e9, "G": 1e9, "T": 1e12}
 
 
 def parse_line(line: str) -> tuple[int, int, dict[str, float]] | None:
