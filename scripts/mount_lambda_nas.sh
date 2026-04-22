@@ -151,10 +151,51 @@ EOF
     fi
 
     ensure_dir
-    # `allow_other` lets non-root users see it; -o reconnect for resilience.
-    sshfs -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,allow_other \
-          "$PEER:$NAS" "$NAS"
-    is_mounted && ok "sshfs mount established" || { fail "sshfs failed"; exit 1; }
+
+    # Common sshfs options:
+    #   reconnect + ServerAlive*: survive transient SSH drops
+    #   IdentitiesOnly + StrictHostKeyChecking=accept-new: be explicit & safe
+    SSHFS_OPTS_BASE="reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,StrictHostKeyChecking=accept-new"
+
+    # `allow_other` is only needed for multi-user access (e.g. root/other UIDs
+    # reading the same mount).  For our single-user setup it is unnecessary
+    # AND requires either root or `user_allow_other` in /etc/fuse.conf.
+    # If you actually need it, run:
+    #     echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    USE_ALLOW_OTHER="${USE_ALLOW_OTHER:-0}"
+    if [[ "$USE_ALLOW_OTHER" == "1" ]]; then
+      SSHFS_OPTS="$SSHFS_OPTS_BASE,allow_other"
+    else
+      SSHFS_OPTS="$SSHFS_OPTS_BASE"
+    fi
+
+    set +e
+    sshfs -o "$SSHFS_OPTS" "$PEER:$NAS" "$NAS"
+    rc=$?
+    set -e
+    if [[ $rc -ne 0 ]]; then
+      fail "sshfs returned $rc"
+      cat <<'EOF'
+
+  Common causes:
+    * 'allow_other only allowed if user_allow_other is set in /etc/fuse.conf'
+        → set USE_ALLOW_OTHER=0 (default) so we skip it; OR enable it once:
+          echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    * 'Permission denied (publickey)'
+        → first ensure ssh-agent forwarding works:  ssh -A ubuntu@<peer>
+          and that the peer accepts your key (check ~/.ssh/authorized_keys).
+    * 'Connection refused' / 'No route to host'
+        → check the peer IP and network reachability:  ping <peer>
+EOF
+      exit "$rc"
+    fi
+
+    if is_mounted; then
+      ok "sshfs mount established"
+    else
+      fail "sshfs reported success but $NAS is not mounted; aborting"
+      exit 1
+    fi
     df -h "$NAS"
     echo
     warn "throughput is SSH-encryption bound (~50-200 MB/s); for bulk"
