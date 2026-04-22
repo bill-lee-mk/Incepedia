@@ -133,7 +133,7 @@ import dataclasses as _dc
 
 if not hasattr(FullNanotronConfig, "model_dump"):
     def _fnc_model_dump(self):
-        out = {}
+        out = {{}}
         for f in _dc.fields(self):
             v = getattr(self, f.name)
             try:
