@@ -82,7 +82,13 @@ class TrainingSpec(BaseModel):
 
 
 class EvalSpec(BaseModel):
-    task_group: Literal["early-signal", "math", "csr-only", "mmlu-only"] = "early-signal"
+    task_group: Literal[
+        "cosmopedia-full",
+        "early-signal",
+        "math",
+        "csr-only",
+        "mmlu-only",
+    ] = "cosmopedia-full"
     max_samples: int | None = 1000
     eval_every_tokens: int = 2_000_000_000  # eval every 2B tokens during training
     final_eval: bool = True
