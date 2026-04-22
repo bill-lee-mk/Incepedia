@@ -19,6 +19,7 @@ nanotron is imported inside `launch_training` lazily.
 """
 from __future__ import annotations
 
+import os as _os
 import subprocess
 import sys
 import tempfile
@@ -132,6 +133,41 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
     if (dataset_folder / "tokenized").is_dir():
         dataset_folder = dataset_folder / "tokenized"
 
+    # ── Auto-resume checkpoint resolution ──
+    # Priority:
+    #   1) explicit:  cfg.model.init_from is set in YAML → obey it
+    #   2) auto:      walk `<exp_dir>/ckpt/<step>/` for the latest VALID ckpt
+    #                 (has config.yaml + model/ + checkpoint_metadata.json)
+    #   3) fresh:     no valid ckpt found, or INCEPEDIA_FRESH_START=1
+    # This makes long runs survive SSH drops / crashes: just re-launch, we
+    # resume from the last save (interval ≈ every 2000 steps, see below).
+    resume_path: str | None = None
+    if m.init_from:
+        resume_path = str(m.init_from)
+        print(f"[launcher] RESUME: explicit init_from={resume_path}", file=sys.stderr)
+    elif _os.environ.get("INCEPEDIA_FRESH_START") != "1":
+        ckpt_dir = cfg.exp_dir / "ckpt"
+        valid = []
+        if ckpt_dir.is_dir():
+            for p in ckpt_dir.iterdir():
+                if not (p.is_dir() and p.name.isdigit()):
+                    continue
+                if ((p / "config.yaml").is_file()
+                        and (p / "model").is_dir()
+                        and (p / "checkpoint_metadata.json").is_file()):
+                    valid.append((int(p.name), p))
+        if valid:
+            valid.sort()
+            step_num, path = valid[-1]
+            resume_path = str(path)
+            print(f"[launcher] AUTO-RESUME from step {step_num} "
+                  f"({path})", file=sys.stderr)
+            print(f"[launcher]   to override: `INCEPEDIA_FRESH_START=1` "
+                  f"or delete {ckpt_dir}", file=sys.stderr)
+    if resume_path is None:
+        print(f"[launcher] FRESH start (no ckpt found / override requested)",
+              file=sys.stderr)
+
     # Map our short precision code to the names nanotron accepts via its
     # str→torch.dtype hook.
     dtype_map = {"bf16": "bfloat16", "fp16": "float16", "fp32": "float32"}
@@ -156,7 +192,8 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "checkpoint_interval": max(2000, steps_train // 20),  # ~20 checkpoints per run
             "checkpoints_path": str(cfg.exp_dir / "ckpt"),
             "checkpoints_path_is_shared_file_system": False,
-            "resume_checkpoint_path": m.init_from,
+            # See auto-resume block above for how this value is populated.
+            "resume_checkpoint_path": resume_path,
         },
         "model": {
             "ddp_bucket_cap_mb": 25,
