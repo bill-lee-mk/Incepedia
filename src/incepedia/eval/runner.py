@@ -99,38 +99,47 @@ _LAUNCHER_TEMPLATE = '''\
 """Auto-generated lighteval driver (HF accelerate backend). Do not edit."""
 {preamble}
 
-# Disable lighteval 0.13's SampleCache entirely — its cache layer is buggy
-# (KeyError: TaskID on multi-task; writes Parquet dumps inside the model
-# directory).  We do not need cross-run sample caching for one-shot evals.
+# Disable lighteval 0.13's @cached decorator at the source.  The cache wrapper
+# (cache_management.cached) does:
+#     1) ask cache what's not cached  -> we say "everything"
+#     2) call func to compute new results
+#     3) write new results to cache
+#     4) RE-READ all results from cache and return *those* as final
+# Step 4 silently drops everything if the cache write/read round-trip fails,
+# producing 0 scores even though inference ran.  Replace `cached` with a
+# pure passthrough decorator BEFORE any lighteval model module is imported
+# (transformers_model.py grabs the symbol with `from ... import cached`).
 import lighteval.utils.cache_management as _cm
-class _NoOpSampleCache:
-    def __init__(self, *a, **kw): pass
-    # Tell the cache wrapper that NOTHING is cached -- all docs need processing.
-    def get_samples_to_process_and_cache(self, docs, sampling_method):
-        return list(docs), set()
-    def get_samples_from_cache(self, docs, task_ids, sampling_method):
-        return [None] * len(docs)
-    def store_samples(self, *a, **kw): pass
-    def store_samples_in_cache(self, *a, **kw): pass
-    def save(self, *a, **kw): pass
-    def __getattr__(self, name):
-        # Anything else: silently no-op.
-        return lambda *a, **kw: None
-_cm.SampleCache = _NoOpSampleCache
+def _cached_passthrough(sampling_method):
+    def deco(fn):
+        return fn
+    return deco
+_cm.cached = _cached_passthrough
 
-# lighteval 0.13's DetailsLogger.aggregate() crashes on empty compiled_details
-# (which is the case when save_details=False).  Wrap it to short-circuit.
-import lighteval.logging.info_loggers as _il
-_orig_aggregate = _il.DetailsLogger.aggregate
-def _safe_aggregate(self, *a, **kw):
+# In case transformers_model was already imported elsewhere, patch its
+# already-bound symbol too.  Then re-decorate its loglikelihood/greedy_until
+# methods to strip any prior cache wrapper if present.
+import importlib, sys
+for mod_name in [
+    "lighteval.models.transformers.transformers_model",
+    "lighteval.models.vllm.vllm_model",
+]:
     try:
-        return _orig_aggregate(self, *a, **kw)
+        m = importlib.import_module(mod_name)
+        m.cached = _cached_passthrough
+    except Exception:
+        pass
+
+# Also tame DetailsLogger.aggregate so it does not crash when
+# save_details=False leaves compiled_details empty.
+import lighteval.logging.info_loggers as _il
+_orig_dl_aggregate = _il.DetailsLogger.aggregate
+def _safe_dl_aggregate(self, *a, **kw):
+    try:
+        return _orig_dl_aggregate(self, *a, **kw)
     except IndexError:
-        # compiled_details is empty (no per-sample details kept).  Skip the
-        # cross-task hash aggregation step — we still have the per-metric
-        # scores in MetricsLogger.
         return None
-_il.DetailsLogger.aggregate = _safe_aggregate
+_il.DetailsLogger.aggregate = _safe_dl_aggregate
 
 from lighteval.main_accelerate import accelerate
 
