@@ -123,7 +123,7 @@ from nanotron.config import (
     GeneralArgs, ModelArgs, TokenizerArgs, get_config_from_dict, get_config_from_file,
 )
 from lighteval.logging.evaluation_tracker import EvaluationTracker
-from lighteval.models.nanotron import FullNanotronConfig, LightEvalConfig
+from lighteval.models.nanotron.nanotron_model import FullNanotronConfig, LightEvalConfig
 from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
 
 ckpt_yaml = {ckpt_yaml!r}
