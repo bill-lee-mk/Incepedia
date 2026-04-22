@@ -475,6 +475,44 @@ def _task_str(t: LightevalTaskConfig, num_fewshots: int, truncate: int = 1) -> s
     return f"{t.name}|{num_fewshots}"
 
 
+# ── Task groups ────────────────────────────────────────────────────────
+#
+# `cosmopedia-full` is the ONLY group meant for publication-grade evaluation.
+# It reproduces the exact task list + few-shot counts from SmolLM team's
+# `third_party/cosmopedia/evaluation/eval.slurm`, so our scores against
+# Cosmopedia v2 / SmolLM / FineWeb baselines are directly comparable.
+#
+# Composition (matches Cosmopedia eval.slurm verbatim, 129 task runs):
+#   • 9 CSR (0-shot):
+#       hellaswag, winogrande, piqa, siqa, openbookqa, arc_easy, arc_challenge,
+#       commonsense_qa, boolq
+#   • TriviaQA twice: 0-shot + 5-shot
+#   • MMLU-Pro cloze (0-shot)                   -- note: MC variant not in Cosmopedia
+#   • MMLU-STEM mc + cloze (0-shot)
+#   • GSM8K (5-shot)                             -- the generation-heavy anchor
+#   • MMLU × 57 subsets × {mc, cloze} (0-shot)   -- 114
+#
+# ⚠ DO NOT change this group casually; any drift breaks the Cosmopedia / SmolLM
+# anchor we rely on (see ADR 0004 P1 verification criterion ±0.5pp).
+_CSR_ORDER = [  # order matches eval.slurm for reproducibility
+    "incep_hellaswag", "incep_winogrande", "incep_piqa", "incep_siqa",
+    "incep_openbookqa", "incep_arc_easy", "incep_arc_challenge",
+    "incep_commonsense_qa", "incep_boolq",
+]
+COSMOPEDIA_FULL_TASKS: str = ",".join(
+    [f"{name}|0" for name in _CSR_ORDER]
+    + ["incep_trivia_qa|0", "incep_trivia_qa|5"]
+    + ["incep_mmlu_pro_cloze|0"]
+    + ["incep_mmlu_stem_mc|0", "incep_mmlu_stem_cloze|0"]
+    + ["incep_gsm8k|5"]
+    + [f"incep_mmlu_mc:{s}|0" for s in MMLU_SUBSETS]
+    + [f"incep_mmlu_cloze:{s}|0" for s in MMLU_SUBSETS]
+)
+
+# ── Legacy / fast groups — deprecated for final evaluation ─────────────
+# These exist for ad-hoc debugging only.  `early-signal` was previously used
+# as the main group by a mistake — it dropped GSM8K + MMLU-STEM + TriviaQA 5-shot
+# which are present in Cosmopedia's real eval (see ADR 0009).
 EARLY_SIGNAL_TASKS: str = ",".join(
     [_task_str(t, 0) for t in COMMON_SENSE_REASONING_TASKS]
     + [_task_str(t, 0) for t in MMLU_TASKS]
@@ -485,6 +523,9 @@ MATH_GROUP: str = ",".join(
 )
 
 TASKS_GROUPS: dict[str, str] = {
+    # canonical group — USE THIS for all publication-grade runs
+    "cosmopedia-full": COSMOPEDIA_FULL_TASKS,
+    # legacy/debug groups (not for final eval)
     "early-signal": EARLY_SIGNAL_TASKS,
     "math": MATH_GROUP,
     "csr-only": ",".join([_task_str(t, 0) for t in COMMON_SENSE_REASONING_TASKS]),

@@ -46,6 +46,7 @@ from incepedia.eval.lighteval_tasks import TASKS_GROUPS
 # Tasks are prefixed with `incep_` in our port (to avoid collision with
 # lighteval 0.13's built-in tasks of same name).
 _TASK_TO_COLUMN: dict[str, str] = {
+    # common-sense reasoning (0-shot)
     "incep_hellaswag": "hellaswag",
     "incep_winogrande": "winogrande",
     "incep_piqa": "piqa",
@@ -55,9 +56,16 @@ _TASK_TO_COLUMN: dict[str, str] = {
     "incep_arc_challenge": "arc_challenge",
     "incep_commonsense_qa": "commonsense_qa",
     "incep_boolq": "boolq",
+    # TriviaQA reported at BOTH 0-shot and 5-shot (Cosmopedia parity)
+    "incep_trivia_qa|0": "trivia_qa_0shot",
+    "incep_trivia_qa|5": "trivia_qa_5shot",
+    "incep_trivia_qa": "trivia_qa",  # backward-compat fallback (if few-shot suffix missing)
+    # MMLU variants
     "incep_mmlu_pro_cloze": "mmlu_pro_cloze",
     "incep_mmlu_pro_mc": "mmlu_pro_mc",
-    "incep_trivia_qa": "trivia_qa",
+    "incep_mmlu_stem_mc": "mmlu_stem_mc",
+    "incep_mmlu_stem_cloze": "mmlu_stem_cloze",
+    # generation-heavy anchor
     "incep_gsm8k": "gsm8k_5shot",
 }
 
