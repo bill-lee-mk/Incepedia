@@ -118,6 +118,20 @@ class _NoOpSampleCache:
         return lambda *a, **kw: None
 _cm.SampleCache = _NoOpSampleCache
 
+# lighteval 0.13's DetailsLogger.aggregate() crashes on empty compiled_details
+# (which is the case when save_details=False).  Wrap it to short-circuit.
+import lighteval.logging.info_loggers as _il
+_orig_aggregate = _il.DetailsLogger.aggregate
+def _safe_aggregate(self, *a, **kw):
+    try:
+        return _orig_aggregate(self, *a, **kw)
+    except IndexError:
+        # compiled_details is empty (no per-sample details kept).  Skip the
+        # cross-task hash aggregation step — we still have the per-metric
+        # scores in MetricsLogger.
+        return None
+_il.DetailsLogger.aggregate = _safe_aggregate
+
 from lighteval.main_accelerate import accelerate
 
 accelerate(
