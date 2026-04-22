@@ -273,12 +273,49 @@ class EvalRunner:
 
     # ── command composition ───────────────────────────────────────────
 
+    def _auto_batch_size(self) -> int:
+        """Choose batch_size based on target GPU's total memory.
+
+        Why conservative: lighteval multiplies batch_size by
+        `max_choices_per_sample`; MMLU-Pro has 10 choices, so
+        `effective_batch = batch_size × 10`.  Each sample costs
+        ~(seq_len × vocab_size × 2 bytes) ≈ 0.6 GB of logits for a 1.7B model
+        at seq=2048 / vocab=151k / bf16, plus activations.  Empirically:
+
+            batch_size=4  → ~18-22 GB / GPU (measured 2026-04-22 on H100)
+            batch_size=8  → ~32-40 GB / GPU (extrapolated, safe on H100 80G)
+            batch_size=16 → ~70+ GB / GPU (OOMs MMLU-Pro on H100 80G)
+
+        So we cap at 8 on H100 and 4 on A100-40G.  Override via the
+        INCEPEDIA_EVAL_BATCH_SIZE env var (e.g. for experiments or debug).
+        """
+        import os
+        if (override := os.environ.get("INCEPEDIA_EVAL_BATCH_SIZE")):
+            return int(override)
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                return 4
+            _, total = torch.cuda.mem_get_info()
+            total_gb = total / (1024 ** 3)
+        except Exception:
+            return 4
+        if total_gb >= 70:        # H100 80G
+            return 8
+        if total_gb >= 35:        # A100 40G (e.g. host 164)
+            return 4
+        if total_gb >= 20:        # RTX 4090 / smaller H100 variants
+            return 2
+        return 1
+
     def _model_args(self) -> str:
         # lighteval 0.13 renamed `pretrained` -> `model_name` in TransformersModelConfig.
-        # batch_size=4 keeps OOM at bay on 1.7B / seq=2048 / 8×H100 (lighteval
-        # multiplies batch by max_choices_per_sample; 4 × 10 ≈ 40 effective
-        # samples per step).  dtype=bfloat16 matches our training dtype.
-        base = f"model_name={self.model},batch_size=4,dtype=bfloat16"
+        # batch_size is auto-selected from GPU memory (see _auto_batch_size).
+        # dtype=bfloat16 matches our training dtype.
+        bs = self._auto_batch_size()
+        print(f"[eval] auto batch_size={bs} (INCEPEDIA_EVAL_BATCH_SIZE overrides)",
+              file=sys.stderr)
+        base = f"model_name={self.model},batch_size={bs},dtype=bfloat16"
         if self.model_args_extra:
             base = f"{base},{self.model_args_extra}"
         return base
