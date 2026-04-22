@@ -84,6 +84,12 @@ MMLU_DATASETS: list[tuple[str, list, list]] = [
     ("TIGER-Lab/MMLU-STEM", ["default"], ["test"]),
 ]
 
+# GSM8K is the generation-heavy anchor in the cosmopedia-full eval suite.
+# lighteval needs both `train` (for few-shot sampling) and `test` (for eval).
+GENERATION_DATASETS: list[tuple[str, list, list]] = [
+    ("openai/gsm8k", ["main"], ["train", "test"]),
+]
+
 
 def prefetch(repo: str, subsets: list, splits: list | None, sleep: float) -> int:
     """Download a single HF dataset repo (with all subsets). Returns # subsets downloaded."""
@@ -109,8 +115,11 @@ def prefetch(repo: str, subsets: list, splits: list | None, sleep: float) -> int
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--only", choices=["csr-only", "mmlu-only", "early-signal"], default="early-signal",
-                        help="Which subset to prefetch (default: all early-signal tasks).")
+    parser.add_argument("--only",
+                        choices=["csr-only", "mmlu-only", "generation-only",
+                                 "early-signal", "cosmopedia-full"],
+                        default="cosmopedia-full",
+                        help="Which task group to prefetch (default: cosmopedia-full).")
     parser.add_argument("--sleep", type=float, default=2.0,
                         help="Seconds between requests to avoid HF rate limits (default: 2).")
     args = parser.parse_args()
@@ -120,10 +129,12 @@ def main() -> int:
     print(f"[prefetch] throttle : {args.sleep}s between requests")
 
     buckets: list[tuple[str, list]] = []
-    if args.only in ("csr-only", "early-signal"):
+    if args.only in ("csr-only", "early-signal", "cosmopedia-full"):
         buckets.append(("CSR", CSR_DATASETS))
-    if args.only in ("mmlu-only", "early-signal"):
+    if args.only in ("mmlu-only", "early-signal", "cosmopedia-full"):
         buckets.append(("MMLU", MMLU_DATASETS))
+    if args.only in ("generation-only", "cosmopedia-full"):
+        buckets.append(("GENERATION", GENERATION_DATASETS))
 
     total = 0
     t_start = time.time()
