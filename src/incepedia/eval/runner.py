@@ -266,10 +266,19 @@ class EvalRunner:
             if not tok_name:
                 return
             import os
-            os.environ.setdefault("HF_HOME", str(hf_home))
+            # Force HF_HOME unconditionally — setdefault would no-op if the
+            # parent shell exported a different HF_HOME.
+            prev = os.environ.get("HF_HOME")
+            os.environ["HF_HOME"] = str(hf_home)
+            # Ensure offline flags are NOT inherited from the parent shell so
+            # the tokenizer can actually be fetched if missing.
+            for k in ("HF_HUB_OFFLINE", "HF_DATASETS_OFFLINE", "TRANSFORMERS_OFFLINE"):
+                os.environ.pop(k, None)
             from transformers import AutoTokenizer
             print(f"[eval] pre-fetching tokenizer {tok_name} into {hf_home}", file=sys.stderr)
             AutoTokenizer.from_pretrained(tok_name)
+            if prev is not None:
+                os.environ["HF_HOME"] = prev
         except Exception as e:
             print(f"[eval] tokenizer pre-fetch failed (non-fatal): {e}", file=sys.stderr)
 
