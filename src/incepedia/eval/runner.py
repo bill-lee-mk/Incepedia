@@ -252,35 +252,43 @@ class EvalRunner:
     def _prefetch_tokenizer(self, hf_home: Path) -> None:
         """Pre-warm HF cache for the model's tokenizer so OFFLINE mode works.
 
-        OFFLINE mode is required to avoid the lighteval-datasets 429 storm,
-        but it also blocks tokenizer download.  We download the tokenizer once
-        here (single repo, not rate-limited) before subprocesses go offline.
+        OFFLINE mode is required in the eval subprocess to avoid the
+        lighteval-datasets 429 storm.  But OFFLINE also blocks the tokenizer
+        download, so we must materialise the tokenizer files into the SAME
+        isolated cache that the subprocess will read from
+        (`<hf_home>/hub/models--<repo>/...`).
+
+        We use `huggingface_hub.snapshot_download` with explicit `cache_dir=`
+        because changing `HF_HOME` env var after `transformers` is already
+        imported does NOT relocate the cache (it is captured at import time).
         """
         if not self._is_nanotron_ckpt():
             return
         try:
-            import yaml as _yaml
-            ckpt_yaml_text = (Path(self.model) / "config.yaml").read_text()
-            ckpt_cfg = _yaml.safe_load(ckpt_yaml_text)
+            ckpt_cfg = yaml.safe_load((Path(self.model) / "config.yaml").read_text())
             tok_name = (ckpt_cfg.get("tokenizer") or {}).get("tokenizer_name_or_path")
             if not tok_name:
                 return
-            import os
-            # Force HF_HOME unconditionally — setdefault would no-op if the
-            # parent shell exported a different HF_HOME.
-            prev = os.environ.get("HF_HOME")
-            os.environ["HF_HOME"] = str(hf_home)
-            # Ensure offline flags are NOT inherited from the parent shell so
-            # the tokenizer can actually be fetched if missing.
-            for k in ("HF_HUB_OFFLINE", "HF_DATASETS_OFFLINE", "TRANSFORMERS_OFFLINE"):
-                os.environ.pop(k, None)
-            from transformers import AutoTokenizer
-            print(f"[eval] pre-fetching tokenizer {tok_name} into {hf_home}", file=sys.stderr)
-            AutoTokenizer.from_pretrained(tok_name)
-            if prev is not None:
-                os.environ["HF_HOME"] = prev
+            cache_dir = hf_home / "hub"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            from huggingface_hub import snapshot_download
+            print(f"[eval] pre-fetching tokenizer {tok_name} → {cache_dir}", file=sys.stderr)
+            snapshot_download(
+                repo_id=tok_name,
+                cache_dir=str(cache_dir),
+                allow_patterns=[
+                    "tokenizer*",
+                    "vocab*",
+                    "merges.txt",
+                    "special_tokens_map.json",
+                    "added_tokens.json",
+                    "config.json",
+                    "generation_config.json",
+                ],
+            )
+            print(f"[eval] tokenizer ready", file=sys.stderr)
         except Exception as e:
-            print(f"[eval] tokenizer pre-fetch failed (non-fatal): {e}", file=sys.stderr)
+            print(f"[eval] tokenizer pre-fetch failed (non-fatal): {e!r}", file=sys.stderr)
 
     def _write_driver(self, workdir: Path) -> Path:
         from incepedia.config import DATA_DIR
