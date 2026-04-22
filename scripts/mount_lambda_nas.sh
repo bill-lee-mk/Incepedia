@@ -116,19 +116,48 @@ EOF
       exit 1
     fi
     echo "── strategy 2: sshfs from $PEER ──"
-    if ! command -v sshfs >/dev/null; then
-      echo "  Installing sshfs..."
-      sudo apt-get update -qq && sudo apt-get install -y sshfs
+
+    # Check 0: already mounted? — early-out before doing anything else.
+    if is_mounted; then
+      ok "$NAS already mounted on this host (no action needed)"
+      mount | grep "$NAS" || true
+      exit 0
     fi
+
+    # Check 1: are we trying to sshfs to ourselves? — silly mistake.
+    SELF_HOST_NAMES="$(hostname; hostname -i 2>/dev/null; hostname -I 2>/dev/null) localhost 127.0.0.1"
+    PEER_HOST="${PEER##*@}"   # strip user@ if present
+    for h in $SELF_HOST_NAMES; do
+      if [[ "$PEER_HOST" == "$h" ]]; then
+        warn "peer '$PEER' looks like THIS host ($h)."
+        warn "On Lambda H100 hosts (165) the NAS is already a virtiofs mount and"
+        warn "this script is a no-op.  You probably meant to run this on the A100"
+        warn "host (164) with: bash scripts/mount_lambda_nas.sh sshfs ubuntu@192.222.52.165"
+        exit 0
+      fi
+    done
+
+    # Now install sshfs if needed.
+    if ! command -v sshfs >/dev/null; then
+      echo "  Installing sshfs (sudo apt-get install -y sshfs)..."
+      if sudo apt-get update -qq && sudo apt-get install -y sshfs; then
+        ok "sshfs installed"
+      else
+        fail "sshfs install failed (apt lock?). Retry after the other apt finishes:"
+        echo "    sudo lsof /var/lib/apt/lists/lock"
+        echo "    # wait for the holder to release, then re-run this command."
+        exit 1
+      fi
+    fi
+
     ensure_dir
-    if is_mounted; then ok "already mounted"; exit 0; fi
     # `allow_other` lets non-root users see it; -o reconnect for resilience.
     sshfs -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,allow_other \
           "$PEER:$NAS" "$NAS"
     is_mounted && ok "sshfs mount established" || { fail "sshfs failed"; exit 1; }
     df -h "$NAS"
     echo
-    warn "throughput will be SSH-encryption bound (~50-200 MB/s); for bulk"
+    warn "throughput is SSH-encryption bound (~50-200 MB/s); for bulk"
     warn "ckpt/dataset transfer prefer 'rsync' from scripts/sync_to_nas.sh."
     ;;
 
