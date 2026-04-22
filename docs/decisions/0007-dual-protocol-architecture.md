@@ -81,10 +81,11 @@
     - 项目末期发布数字时,**Cosmopedia 与 Incepedia 在两套架构上的对照表都要展示**
     - 若 Qwen3 patch 实测有性能或正确性问题,fallback 到 Qwen2.5-1.5B(备用决策路径已留)
 
-- **Wall-clock budget**(8 × H100,基于 Cosmo-1B 公开吞吐反推)
+- **Wall-clock budget**(8 × H100)
   | 实验类型 | Protocol A | Protocol B | 备注 |
   |---|---|---|---|
-  | 单次 30B token 训练(1 seed) | ~50h(2.1 天) | ~47h(2.0 天) | Qwen3-1.7B 略小 |
+  | 单次 30B token 训练(1 seed) — **原估算** | ~50h(2.1 天) | ~47h(2.0 天) | 基于 Cosmo-1B 公开吞吐反推,**偏乐观** |
+  | 单次 30B token 训练(1 seed) — **实测(2026-04-22)** | 待测 | **~55h(2.3 天)** | Qwen3-1.7B FA2,154K tok/s,MFU 24%。**FA3 启用后预期回到 47h** (T1 验收项) |
   | Cosmopedia v2 ref(2 seeds) | ~4.4 天 | ~4.0 天 | 包含 ~45 min eval |
   | Track 1 milestones(6 × 2 seeds) | — | ~24 天 | 仅 Protocol B 跑 |
   | Track 2 backbone | — | ~1.4 天 | Qwen3 一次 |

@@ -2,7 +2,8 @@
 # Incepedia · 事件驱动 rsync → NAS
 #
 # 用法:
-#   sync_to_nas.sh ckpt    <exp_id>             # 同步单个实验 ckpt(参数:实验目录名)
+#   sync_to_nas.sh ckpt    <exp_id>             # 同步单个实验 nanotron 训练 ckpt
+#   sync_to_nas.sh hf_ckpt <exp_id>             # 同步 HF 转换格式 ckpt(eval/发布用)
 #   sync_to_nas.sh gen     <batch_id>           # 同步一轮生成批次
 #   sync_to_nas.sh config  <exp_id>             # 立即同步 config.yaml
 #   sync_to_nas.sh eval    <exp_id>             # 同步评测结果
@@ -78,6 +79,18 @@ case "$MODE" in
     DST="$NAS_ROOT/experiments/$EXP_ID/ckpt/"
     [[ -d "$SRC" ]] || { echo "[ERR] no ckpt dir: $SRC"; exit 1; }
     rsync_with_audit "ckpt" "$SRC" "$DST"
+    ;;
+
+  hf_ckpt)
+    # Sync the converted (HF transformers format) checkpoint to NAS.
+    # This is the artifact eval / publishing flows actually consume — much
+    # smaller than the raw nanotron ckpt (~3.5 GB vs ~28 GB for our 1.7B).
+    ensure_nas
+    EXP_ID="${1:?需要 exp_id}"
+    SRC="$REPO_ROOT/experiments/$EXP_ID/hf_ckpt/"
+    DST="$NAS_ROOT/experiments/$EXP_ID/hf_ckpt/"
+    [[ -d "$SRC" ]] || { echo "[ERR] no hf_ckpt dir: $SRC (run scripts/convert_nanotron_qwen2_to_hf.py first)"; exit 1; }
+    rsync_with_audit "hf_ckpt" "$SRC" "$DST"
     ;;
 
   gen)

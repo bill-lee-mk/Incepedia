@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Incepedia · Lambda Labs shared-storage attach helper
+#
+# CONTEXT
+# -------
+# On Lambda Labs cloud (e.g. our 192-222-52-165 H100 host), the NAS at
+# /lambda/nfs/us-south-2 is exposed via VIRTIO-FS, NOT NFS — it is attached at
+# the VM hypervisor level (volume UUID = aa4b366d-e191-4f78-a42a-f817ce6b86ee
+# in our case).  This means a sibling host (e.g. our 150-136-213-164 A100 box
+# used for evaluation) cannot just `mount -t nfs ...` to get the same data —
+# the volume must be attached *at the VM level* by Lambda.
+#
+# This script implements three strategies, in order of preference:
+#
+#   1. ATTACH (preferred) — verify the Lambda virtiofs volume is already
+#      attached and persistent in /etc/fstab; if so, mount it.  Use this on
+#      hosts that have had the shared volume attached via the Lambda console
+#      or `lambda-cloud` CLI.
+#
+#   2. SSHFS (fallback) — if the volume cannot be attached, mount the NAS
+#      remotely over SSH from the primary host.  Usable but slower.
+#
+#   3. RSYNC-only (no mount) — give up on a live mount and use rsync via SSH
+#      for explicit, on-demand transfers (per-experiment, not continuous).
+#      This is what scripts/sync_to_nas.sh already does today.
+#
+# Usage:
+#   bash scripts/mount_lambda_nas.sh attach           # try strategy 1
+#   bash scripts/mount_lambda_nas.sh sshfs <peer>     # strategy 2 (remote primary host)
+#   bash scripts/mount_lambda_nas.sh check            # report current state
+#
+# Environment overrides:
+#   INCEPEDIA_NAS_ROOT  — local path (default /lambda/nfs/us-south-2)
+#   LAMBDA_VOLUME_UUID  — virtiofs source UUID for strategy 1
+#                         (default aa4b366d-e191-4f78-a42a-f817ce6b86ee)
+#   PEER_USER, PEER_HOST — used by strategy 2
+
+set -euo pipefail
+
+NAS="${INCEPEDIA_NAS_ROOT:-/lambda/nfs/us-south-2}"
+VOL_UUID="${LAMBDA_VOLUME_UUID:-aa4b366d-e191-4f78-a42a-f817ce6b86ee}"
+MODE="${1:-check}"
+
+ok()   { echo "  ✅ $*"; }
+warn() { echo "  ⚠  $*"; }
+fail() { echo "  ❌ $*"; }
+
+ensure_dir () {
+  if [[ ! -d "$NAS" ]]; then
+    sudo mkdir -p "$NAS"
+    sudo chown "$USER":"$USER" "$NAS"
+  fi
+}
+
+is_mounted () { mountpoint -q "$NAS"; }
+
+case "$MODE" in
+  check)
+    echo "── current NAS state ──"
+    if is_mounted; then
+      ok "$NAS is mounted"
+      mount | grep "$NAS" || true
+      df -h "$NAS"
+    else
+      warn "$NAS is NOT mounted"
+      [[ -d "$NAS" ]] && ls -la "$NAS" | head -3 || echo "  (directory does not exist)"
+    fi
+    echo
+    echo "── /etc/fstab entry (if any) ──"
+    grep -E " $NAS " /etc/fstab || echo "  (none)"
+    echo
+    echo "── lambda-related units ──"
+    systemctl list-unit-files 2>/dev/null | grep -i lambda | head -5 || echo "  (none)"
+    ;;
+
+  attach)
+    echo "── strategy 1: virtiofs attach ──"
+    ensure_dir
+    if is_mounted; then ok "already mounted"; exit 0; fi
+    # Look for a virtiofs source matching our UUID.
+    if ls /dev/disk/by-uuid/"$VOL_UUID" >/dev/null 2>&1 \
+       || lsblk -o NAME,UUID 2>/dev/null | grep -q "$VOL_UUID" \
+       || grep -q "$VOL_UUID" /proc/mounts; then
+      ok "virtiofs volume $VOL_UUID is visible to the kernel"
+    else
+      fail "virtiofs volume $VOL_UUID not visible — Lambda must attach it via the console first"
+      cat <<EOF
+
+  Action required (one-time, on Lambda Labs side):
+    1. Open Lambda Labs Cloud Console
+    2. Navigate to your A100 instance (164)
+    3. Go to "Storage" / "Shared Volumes"
+    4. Attach existing shared filesystem with UUID:  $VOL_UUID
+       (this is the same volume already attached to host 165)
+    5. Reboot the A100 instance OR run:
+       sudo systemctl restart lambda-nfs-us\\x2dsouth\\x2d2.mount
+EOF
+      exit 1
+    fi
+    # Add to fstab if missing (idempotent).
+    if ! grep -q " $NAS " /etc/fstab; then
+      LINE="$VOL_UUID	$NAS	virtiofs	async,auto,exec,nodev,nosuid,nouser,rw,comment=cloudconfig	0	0"
+      echo "$LINE" | sudo tee -a /etc/fstab
+      ok "added /etc/fstab line"
+    fi
+    sudo systemctl daemon-reload
+    sudo mount "$NAS"
+    is_mounted && ok "mounted successfully" || { fail "mount failed"; exit 1; }
+    df -h "$NAS"
+    ;;
+
+  sshfs)
+    PEER="${2:-}"
+    if [[ -z "$PEER" ]]; then
+      fail "usage: mount_lambda_nas.sh sshfs <user@peer-host>"
+      exit 1
+    fi
+    echo "── strategy 2: sshfs from $PEER ──"
+    if ! command -v sshfs >/dev/null; then
+      echo "  Installing sshfs..."
+      sudo apt-get update -qq && sudo apt-get install -y sshfs
+    fi
+    ensure_dir
+    if is_mounted; then ok "already mounted"; exit 0; fi
+    # `allow_other` lets non-root users see it; -o reconnect for resilience.
+    sshfs -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,allow_other \
+          "$PEER:$NAS" "$NAS"
+    is_mounted && ok "sshfs mount established" || { fail "sshfs failed"; exit 1; }
+    df -h "$NAS"
+    echo
+    warn "throughput will be SSH-encryption bound (~50-200 MB/s); for bulk"
+    warn "ckpt/dataset transfer prefer 'rsync' from scripts/sync_to_nas.sh."
+    ;;
+
+  unmount|umount)
+    if is_mounted; then
+      sudo umount "$NAS" && ok "unmounted"
+    else
+      ok "was not mounted"
+    fi
+    ;;
+
+  *)
+    sed -n '2,40p' "$0"
+    exit 1
+    ;;
+esac

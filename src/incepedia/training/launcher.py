@@ -104,6 +104,25 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
     steps_stable = s.stable_tokens // t.global_batch_tokens
     steps_cooldown = s.cooldown_tokens // t.global_batch_tokens
 
+    # Compute gradient accumulation needed to hit the configured global batch.
+    # CRITICAL: nanotron's effective tokens-per-step is
+    #     micro_batch_size * batch_accumulation_per_replica * seq_len * dp
+    # We MUST set `batch_accumulation_per_replica` to honour
+    # `t.global_batch_tokens`, otherwise we accidentally train on
+    # `(steps_train * mbs * seq * dp)` tokens — a 20× under-shoot was
+    # observed on 2026-04-22 with the previous hard-coded value of 1 (seed42
+    # nominally 30B trained 1.5B).  Dp is hard-coded to 8 below; if you change
+    # parallelism, also revisit this calculation.
+    dp = 8
+    tokens_per_microstep = t.micro_batch_size * m.seq_len * dp
+    if t.global_batch_tokens % tokens_per_microstep != 0:
+        raise ValueError(
+            f"global_batch_tokens={t.global_batch_tokens} is not divisible by "
+            f"micro_batch_size×seq_len×dp = {t.micro_batch_size}×{m.seq_len}×{dp} "
+            f"= {tokens_per_microstep}. Adjust micro_batch_size or global_batch_tokens."
+        )
+    grad_accum = t.global_batch_tokens // tokens_per_microstep
+
     # Resolve the tokenized dataset folder.  Config holds a relative path;
     # nanotron needs an absolute path to the directory that contains the
     # datatrove `.ds`/`.ds.index`/`.ds.metadata` shards.
@@ -156,7 +175,7 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "tokenizer_revision": None,
         },
         "tokens": {
-            "batch_accumulation_per_replica": 1,
+            "batch_accumulation_per_replica": grad_accum,
             "micro_batch_size": t.micro_batch_size,
             "sequence_length": m.seq_len,
             "train_steps": steps_train,

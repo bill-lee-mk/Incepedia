@@ -68,3 +68,4 @@ third_party/
 experiments/*/nanotron.yaml
 experiments/*/train.log
 experiments/*/aim_sidecar.log
+experiments/*/hf_ckpt/

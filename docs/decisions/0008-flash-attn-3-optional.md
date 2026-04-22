@@ -49,21 +49,36 @@ does not ship replacements.
 - Risk containment: if FA3 produces different loss / grad_norm, we can
   instantly fall back to `NANOTRON_USE_FA3=0` without a code change.
 
-## Validation plan (TODO T1 continuation)
+## Validation plan (TODO T1)
 
-Before flipping the default:
+### Phase 1 (DONE 2026-04-22) · Kernel-level micro-bench
 
-1. **Smoke**: `NANOTRON_USE_FA3=1 python scripts/run_experiment.py --config <exp>`
-   runs for ≥ 100 steps without error.
-2. **Numeric agreement**: fresh FA2 and FA3 runs with `seed=42`, 50 steps,
-   same config.  Loss curves agree to **≤1e-3 relative** at step 50.
-3. **Throughput**: record `tokens_per_sec_per_gpu` and `model_tflops_per_gpu`
-   at steady state (iter 100–200) for both; FA3 target: +10 % or better.
-4. **ADR update**: if results pass, flip to `NANOTRON_USE_FA3=1` in
-   `scripts/bootstrap_env.sh` env exports (so new shells inherit it) and
-   note the switch date in `docs/project-status.md`.
+`scripts/bench_fa2_vs_fa3.py` builds Q/K/V matching the Qwen3-1.7B attention
+(heads=16, kv=8, head_dim=128, seq=2048, bf16) and calls FA2 + FA3 directly:
 
-If any step fails, keep FA2 as default and document the failure here.
+```
+max |FA2 - FA3|     = 3.91e-3      (bf16 noise floor ~1e-3, within tolerance)
+cosine similarity   = 0.999999
+per-call FA2        = 0.201 ms
+per-call FA3        = 0.117 ms
+speedup             = 1.73×        (well above the +10 % target)
+```
+
+Verdict: **✅ PASS**.  FA3 is numerically equivalent at the kernel level and
+substantially faster on H100.
+
+### Phase 2 (PENDING — needs free 8×H100 window) · End-to-end nanotron
+
+Run `experiments/_bench_fa_smoke/config.yaml` (50 steps, ~3 min) twice with
+identical seed=42, once with FA2 and once with `NANOTRON_USE_FA3=1`.  Compare
+`lm_loss` per step; expect ≤1e-3 relative.  Record steady-state
+`tokens_per_sec_per_gpu` and `model_tflops_per_gpu`; expect FA3 ≥ +10 %.
+
+### Phase 3 (CONDITIONAL ON Phase 2 PASS) · Default flip
+
+If Phase 2 passes, set `export NANOTRON_USE_FA3=1` in
+`scripts/bootstrap_env.sh` so all new shells inherit it.  Update
+`docs/project-status.md` with the switch date.
 
 ## Known non-supports
 

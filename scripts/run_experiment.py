@@ -87,27 +87,71 @@ def run_pipeline(cfg: ExperimentConfig, *, eval_only: bool, dry_run: bool) -> in
             print(f"[orchestrator] training failed with code {rc}", file=sys.stderr)
             return rc
 
-        # Sync checkpoints
+        # Sync checkpoints (raw nanotron form — used for resume / cooldown-fork only)
         _run(
             ["bash", str(REPO_ROOT / "scripts" / "sync_to_nas.sh"), "ckpt", cfg.exp_id],
             "sync ckpt → NAS",
         )
 
-    # 3. Evaluation
-    from incepedia.eval.runner import EvalRunner
-
-    # Find latest ckpt
+    # 2.5  Convert latest nanotron ckpt to HF format
+    # Eval / publishing always consume the HF copy (transformers / lighteval-
+    # accelerate / vllm / lm-eval-harness all want the standard HF layout).
+    # The lighteval-nanotron path in 0.13 is broken in many places (see ADR
+    # 0009), so we always materialise an HF ckpt before eval.
     ckpt_dir = exp_dir / "ckpt"
     latest_ckpt = None
     if ckpt_dir.exists():
-        ckpts = sorted([p for p in ckpt_dir.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime)
+        ckpts = sorted(
+            (p for p in ckpt_dir.iterdir() if p.is_dir() and (p / "config.yaml").is_file()),
+            key=lambda p: int(p.name) if p.name.isdigit() else 0,
+        )
         if ckpts:
             latest_ckpt = ckpts[-1]
 
-    model_path = str(latest_ckpt) if latest_ckpt else "REPLACE_WITH_MODEL_PATH"
-    if dry_run or not latest_ckpt:
+    hf_ckpt_dir = exp_dir / "hf_ckpt"
+    if not eval_only and latest_ckpt is not None and not dry_run:
+        if hf_ckpt_dir.exists() and (hf_ckpt_dir / "model.safetensors").exists():
+            print(f"[orchestrator] hf_ckpt already exists at {hf_ckpt_dir} — skip convert")
+        else:
+            _run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "convert_nanotron_qwen2_to_hf.py"),
+                    "--src", str(latest_ckpt),
+                    "--dst", str(hf_ckpt_dir),
+                ],
+                f"convert nanotron→HF (step {latest_ckpt.name})",
+            )
+        _run(
+            ["bash", str(REPO_ROOT / "scripts" / "sync_to_nas.sh"), "hf_ckpt", cfg.exp_id],
+            "sync hf_ckpt → NAS",
+        )
+    elif eval_only and not hf_ckpt_dir.exists() and latest_ckpt is not None and not dry_run:
+        # eval-only path: convert on demand if missing
+        _run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "convert_nanotron_qwen2_to_hf.py"),
+                "--src", str(latest_ckpt),
+                "--dst", str(hf_ckpt_dir),
+            ],
+            f"convert nanotron→HF (step {latest_ckpt.name})",
+        )
+
+    # 3. Evaluation
+    from incepedia.eval.runner import EvalRunner
+
+    # Eval reads the HF ckpt (or falls back to the raw nanotron dir if HF
+    # conversion produced no output, which keeps `--eval-only` debug usable
+    # against external HF model ids).
+    if hf_ckpt_dir.exists() and (hf_ckpt_dir / "config.json").is_file():
+        model_path = str(hf_ckpt_dir)
+    else:
+        model_path = str(latest_ckpt) if latest_ckpt else "REPLACE_WITH_MODEL_PATH"
+
+    if dry_run or model_path == "REPLACE_WITH_MODEL_PATH":
         print(f"[orchestrator] eval model_path would be: {model_path}")
-        if not latest_ckpt:
+        if model_path == "REPLACE_WITH_MODEL_PATH":
             print("[orchestrator] no checkpoint found; skip eval")
             return 0
 

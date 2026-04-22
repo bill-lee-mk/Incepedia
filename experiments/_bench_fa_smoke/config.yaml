@@ -1,0 +1,48 @@
+# T1 verification: FA2 vs FA3 50-step numerical-equivalence + throughput smoke.
+# Exactly the seed42 config but truncated to 50 steps and reduced ckpt cadence.
+# `train_tokens` is intentionally tiny so the run completes in ~3 minutes.
+exp_id: _bench_fa_smoke
+stage: P1
+track: 1
+branch_from: null
+
+dataset:
+  id: cosmopedia_v2_reference_qwen
+  path: data/datasets/cosmopedia_v2_reference_qwen
+  tokens: 60_000_000
+  notes: 50-step smoke (FA2/FA3 sanity)
+
+model:
+  arch: qwen3-1.7B
+  seq_len: 2048
+  tokenizer: Qwen/Qwen2.5-1.5B
+  vocab_size: 151665
+  init_from: null
+
+training:
+  # 50 steps × 1.31M tokens/step ≈ 65M tokens total
+  train_tokens: 65_536_000
+  global_batch_tokens: 1_310_720
+  micro_batch_size: 4
+  seed: 42
+  mixed_precision: bf16
+  gradient_clip: 1.0
+  weight_decay: 0.1
+  schedule:
+    scheduler: trapezoidal
+    lr_max: 3.0e-4
+    lr_min: 0.0
+    warmup_tokens: 13_107_200      # 10 steps warmup
+    stable_tokens: 39_321_600      # 30 steps stable
+    cooldown_tokens: 13_107_200    # 10 steps cooldown
+
+eval:
+  task_group: early-signal
+  max_samples: 100
+  eval_every_tokens: 1_000_000_000_000
+  final_eval: false
+
+notes: >
+  Synthetic 50-step run used to compare FA2 vs FA3 numerical equivalence
+  and throughput.  Pair runs use identical seed; expected loss gap < 1e-3
+  per step and FA3 ≥ +10% tokens/sec to pass T1 verdict.
