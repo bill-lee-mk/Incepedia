@@ -143,6 +143,18 @@ if not hasattr(FullNanotronConfig, "model_dump"):
         return out
     FullNanotronConfig.model_dump = _fnc_model_dump
 
+# Same upstream bug source: SampleCache also looks up `cache_dir` and
+# `model_name` on the model config.  Provide sensible defaults via patched
+# property descriptors so the cache can be initialised harmlessly.
+if not hasattr(FullNanotronConfig, "cache_dir"):
+    FullNanotronConfig.cache_dir = property(
+        lambda self: os.path.expanduser("~/.cache/incepedia_lighteval_samplecache")
+    )
+if not hasattr(FullNanotronConfig, "model_name"):
+    FullNanotronConfig.model_name = property(
+        lambda self: getattr(self.nanotron_general, "run", "nanotron_run")
+    )
+
 ckpt_yaml = {ckpt_yaml!r}
 lighteval_yaml = {lighteval_yaml!r}
 
