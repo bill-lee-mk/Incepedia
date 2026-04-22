@@ -98,6 +98,21 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 _LAUNCHER_TEMPLATE = '''\
 """Auto-generated lighteval driver (HF accelerate backend). Do not edit."""
 {preamble}
+
+# Disable lighteval 0.13's broken SampleCache (KeyError: TaskID(...) on
+# multi-task / multi-rank runs).  We don't need cross-run sample caching for
+# one-shot evaluations; just bypass the wrapper.
+import lighteval.utils.cache_management as _cm
+def _no_cache(self, docs, task_ids, sampling_method):
+    # Return a list of "no cached result" markers; lighteval treats None as
+    # "must compute fresh".  Length must match docs.
+    return [None] * len(docs)
+_cm.SampleCache.get_samples_from_cache = _no_cache
+def _no_store(self, *a, **kw): pass
+for fn in ("store_samples", "store_samples_in_cache", "save"):
+    if hasattr(_cm.SampleCache, fn):
+        setattr(_cm.SampleCache, fn, _no_store)
+
 from lighteval.main_accelerate import accelerate
 
 accelerate(
