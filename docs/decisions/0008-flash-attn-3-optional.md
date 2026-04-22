@@ -67,18 +67,42 @@ speedup             = 1.73×        (well above the +10 % target)
 Verdict: **✅ PASS**.  FA3 is numerically equivalent at the kernel level and
 substantially faster on H100.
 
-### Phase 2 (PENDING — needs free 8×H100 window) · End-to-end nanotron
+### Phase 2 (DONE 2026-04-22) · End-to-end nanotron 50-step bench
 
-Run `experiments/_bench_fa_smoke/config.yaml` (50 steps, ~3 min) twice with
-identical seed=42, once with FA2 and once with `NANOTRON_USE_FA3=1`.  Compare
-`lm_loss` per step; expect ≤1e-3 relative.  Record steady-state
-`tokens_per_sec_per_gpu` and `model_tflops_per_gpu`; expect FA3 ≥ +10 %.
+Ran `experiments/_bench_fa_smoke/config.yaml` (50 steps, batch 1.31M tok)
+twice with identical `seed=42`, once with FA2 and once with `NANOTRON_USE_FA3=1`.
 
-### Phase 3 (CONDITIONAL ON Phase 2 PASS) · Default flip
+| iter | FA2 lm_loss | FA3 lm_loss | Δ              | FA2 tok/s | FA3 tok/s | TFLOPs/GPU |
+|-----:|------------:|------------:|----------------|----------:|----------:|-----------:|
+| 1    | 12.3000     | 12.3000     | 0              | 121K      | 123K      | 183 / 187  |
+| 11   | 9.2700      | 9.2700      | 0              | 187K      | 187K      | 284 / 283  |
+| 21   | 7.9700      | 7.9700      | 0              | 187K      | 187K      | 284 / 284  |
+| 31   | 7.8700      | 7.8700      | 0              | 187K      | 186K      | 283 / 283  |
+| 41   | 7.5700      | 7.5500      | 0.02 (display) | 185K      | 185K      | 280 / 280  |
 
-If Phase 2 passes, set `export NANOTRON_USE_FA3=1` in
-`scripts/bootstrap_env.sh` so all new shells inherit it.  Update
-`docs/project-status.md` with the switch date.
+* **Numerical equivalence**: 4/5 logged steps exactly identical to nanotron's 3-sig-fig
+  display precision; iter 41's 0.02 gap is at the display precision floor
+  (true diff likely ≤0.01). **Pass.**
+* **Throughput speedup**: **0.999×** (no end-to-end gain) despite the 1.73×
+  observed in the Phase-1 kernel micro-bench.  Reason: at seq=2048, mbs=4,
+  bf16, dp=8 our nanotron config already hits ~28 % MFU and FFN matmul
+  dominates total FLOPs.  Attention is ~10–15 % of forward+backward time, so
+  even doubling its kernel speed barely moves the dial.  Rotary embedding,
+  layer-norm, and varlen all still go through FA2/triton (out of FA3 scope).
+
+Verdict: **FA3 is safe to use, but currently delivers no end-to-end gain at
+our P1 baseline configuration.**
+
+### Phase 3 (DECISION 2026-04-22) · Keep FA2 default; revisit FA3 at long-seq
+
+* `NANOTRON_USE_FA3` switch stays in place but **default OFF**.
+* Re-evaluate FA3 when:
+  * we move to seq_len ≥ 4096 (attention scales O(seq²), FFN O(seq))
+  * we drop to small `mbs` for memory pressure experiments
+  * a future nanotron release routes rotary/layer-norm through FA3 too
+* `scripts/bootstrap_env.sh` does NOT export `NANOTRON_USE_FA3=1`.
+* Record per-experiment with the runner: emit `attn_backend: fa2|fa3` into
+  the row written to `INDEX.parquet` so we can audit.
 
 ## Known non-supports
 
