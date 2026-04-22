@@ -105,17 +105,18 @@ _LAUNCHER_TEMPLATE = '''\
 import lighteval.utils.cache_management as _cm
 class _NoOpSampleCache:
     def __init__(self, *a, **kw): pass
+    # Tell the cache wrapper that NOTHING is cached -- all docs need processing.
+    def get_samples_to_process_and_cache(self, docs, sampling_method):
+        return list(docs), set()
     def get_samples_from_cache(self, docs, task_ids, sampling_method):
         return [None] * len(docs)
+    def store_samples(self, *a, **kw): pass
+    def store_samples_in_cache(self, *a, **kw): pass
+    def save(self, *a, **kw): pass
     def __getattr__(self, name):
-        # Anything else: silently no-op (returns a no-op callable).
+        # Anything else: silently no-op.
         return lambda *a, **kw: None
 _cm.SampleCache = _NoOpSampleCache
-# Also disable any cache decorator so we skip the cache wrapper entirely.
-def _passthrough(func):
-    return func
-if hasattr(_cm, "cache_decorator"):
-    _cm.cache_decorator = lambda *a, **kw: _passthrough
 
 from lighteval.main_accelerate import accelerate
 
