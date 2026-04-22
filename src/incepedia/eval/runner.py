@@ -126,6 +126,23 @@ from lighteval.logging.evaluation_tracker import EvaluationTracker
 from lighteval.models.nanotron.nanotron_model import FullNanotronConfig, LightEvalConfig
 from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
 
+# Workaround for upstream lighteval 0.13 bug: SampleCache.get_model_hash calls
+# `.model_dump()` (pydantic v2 method) on FullNanotronConfig, which is a plain
+# @dataclass.  We patch it to expose dataclasses.asdict() under the same name.
+import dataclasses as _dc
+
+if not hasattr(FullNanotronConfig, "model_dump"):
+    def _fnc_model_dump(self):
+        out = {}
+        for f in _dc.fields(self):
+            v = getattr(self, f.name)
+            try:
+                out[f.name] = _dc.asdict(v) if _dc.is_dataclass(v) else repr(v)
+            except Exception:
+                out[f.name] = repr(v)
+        return out
+    FullNanotronConfig.model_dump = _fnc_model_dump
+
 ckpt_yaml = {ckpt_yaml!r}
 lighteval_yaml = {lighteval_yaml!r}
 
