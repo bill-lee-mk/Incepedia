@@ -33,6 +33,7 @@ Two-weekly progress in [`docs/project-status.md`](./docs/project-status.md).
 **Multi-generator mixing + web-grounded RAG + multi-agent self-revision + three-layer decontamination, evaluated under a dual-protocol (Llama2-1.82B anchor + Qwen3-1.7B working) Cosmopedia-parity protocol, beats Cosmopedia v1/v2, then scaled to 30B+ for public release.**
 
 In depth:
+- [`docs/codenames-cheatsheet.md`](./docs/codenames-cheatsheet.md) — **one-page cheat sheet of all codenames (P/C/T/ADR/Track/Protocol/L/R)**
 - [`docs/methodology.md`](./docs/methodology.md) — methodology and decision rationale
 - [`docs/decisions/`](./docs/decisions/) — 9 ADRs (architecture, protocol, tooling, eval policy)
 - [`docs/incepedia-overview.md`](./docs/incepedia-overview.md) — high-level project narrative

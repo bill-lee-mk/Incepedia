@@ -33,6 +33,7 @@
 **用多生成器混合 + web-grounded RAG + 多 agent 自批改 + 三层去污染,在双协议(Llama2-1.82B 锚 + Qwen3-1.7B 工作)/ Cosmopedia-parity 评测下打过 Cosmopedia v1/v2,然后扩到 30B+ 公开发布。**
 
 深度细节见:
+- [`docs/codenames-cheatsheet.md`](./docs/codenames-cheatsheet.md) — **所有代号(P/C/T/ADR/Track/Protocol/L/R)一页纸对照**
 - [`docs/methodology.md`](./docs/methodology.md) — 方法论与决策依据
 - [`docs/decisions/`](./docs/decisions/) — 9 条 ADR(架构、协议、工具、评测策略)
 - [`docs/incepedia-overview.md`](./docs/incepedia-overview.md) — 高层级项目叙事
