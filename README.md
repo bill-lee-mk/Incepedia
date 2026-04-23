@@ -324,12 +324,13 @@ exp_{semantic_slug}_{seed?}
 | # | 文档 | 用途 |
 |---|------|------|
 | 1 | 本 README | 5 分钟掌握项目全貌 |
-| 2 | [`docs/project-status.md`](./docs/project-status.md) | 当前进度、TODO 队列、风险表 |
-| 3 | [`docs/methodology.md`](./docs/methodology.md) | 方法论详解、双轨评测、Incepedia 生成策略(C1-C16) |
-| 4 | [`docs/incepedia-overview.md`](./docs/incepedia-overview.md) | 高层级项目叙事 |
-| 5 | [`docs/decisions/README.md`](./docs/decisions/README.md) | 9 条 ADR 索引 |
-| 6 | `INDEX.parquet`(`pandas.read_parquet`)| 查最新实验状态与 benchmark 分数 |
-| 7 | 最近修改的 `experiments/exp_*/` | 了解正在做什么实验 |
+| 2 | [`docs/codenames-cheatsheet.md`](./docs/codenames-cheatsheet.md) | **单一真相源** · 所有代号(P/C/E/A/G/W/①–⑨/ADR/…)一次说清 + 生成管线剖面图 |
+| 3 | [`docs/project-status.md`](./docs/project-status.md) | 当前进度、TODO 队列、风险表 |
+| 4 | [`docs/methodology.md`](./docs/methodology.md) | 方法论详解、双轨评测、Incepedia 生成策略(C1–C16 + ①–⑨) |
+| 5 | [`docs/incepedia-overview.md`](./docs/incepedia-overview.md) | 高层级项目叙事 |
+| 6 | [`docs/decisions/README.md`](./docs/decisions/README.md) | 9 条 ADR 索引 |
+| 7 | `INDEX.parquet`(`pandas.read_parquet`)| 查最新实验状态与 benchmark 分数 |
+| 8 | 最近修改的 `experiments/exp_*/` | 了解正在做什么实验 |
 
 agent 守则见 [`AGENTS.md`](./AGENTS.md);贡献规范见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
 

@@ -152,52 +152,78 @@
 
 #### C16 · Synthetic 贯穿 pretrain 全程(Phi-4 路线)
 - 这不是生成器决策,是**训练配方**决策
-- Phi-4 报告:12 epochs synthetic > 1 epoch more unique web
+- Phi-4 报告:12 epochs synthetic > 1 epoch more unique web(对照同等训练 token 预算,4→8 epoch 显著增,8→12 平台,>12 倒退)
 - 对我们的含义:在"独立 corpus"场景(Track 1),Incepedia 应作为 100% 主力而非仅 cooldown;在"配料"场景(Track 2),评测其作为 decay 调料的 delta 增益
 - **这恰好对齐两条 ablation 轨道**(ADR 0004)
+- **v0.1 epoch 选择**:10B uniq × 30B 训练 = **3 epoch**,处于 Phi-4 观察的"显著增"段,保守远离过拟合拐点。**E3 控制实验**用 Cosmopedia v2 随机 3B subset × 10 epoch,把 epoch 效应与数据质量效应拆开
+
+### 3.4 P2 质量优先升级项(①–⑨)—— 在 C 基础上调参
+
+C1–C16 确定"做什么",下面 9 项确定"P2 阶段做到什么规模 / 强度"。详见 `docs/codenames-cheatsheet.md §2.4`。
+
+| # | 升级 | 基础策略 | P2 目标值 | 状态 |
+|---|------|----------|-----------|------|
+| **①** | uniq token 规模 | C16 | 3B → **10B**(epoch 从 10 降到 3,大幅降 memorization 混淆) | ✅ |
+| **②** | frontier tier 占比 | ADR 0003 | 16% → **50%**(rephrase_* 全部升档,midtier 只留 wikihow/story) | ✅ |
+| **③** | Best-of-N + critic pick | 新增 | midtier N=1 / frontier N=2 / STEM-expert N=3 | ✅ |
+| **④** | critic 覆盖与轮数 | C10 | 15% × 1 轮 → **50% × 最多 2 轮**,score<4 强制改到 ≥4 | ✅ |
+| **⑤** | seed 来源丰富度 | C1 | FineWeb-Edu + Wiki + arXiv abstract → **+ OpenStax + Stack-Edu + arXiv full-text** | ✅ |
+| **⑥** | persona pool 规模 | C2 | 2k(PersonaHub 导入)→ **10k**(LLM 过滤均匀子集) | ✅ |
+| **⑦** | 结构模板数量 | C4 | 12 → **20**(加 glossary / cheatsheet / misconception_correction / worked_example / case_study / debate / flashcard / concept_map) | ✅ |
+| ⑧ | Multi-agent debate | 新增 | expert 档 20% 走 2-agent 辩论 → critic 裁决 | ⏳ v0.2 |
+| ⑨ | 全局滚动 embed 索引 | C11 衍生 | FAISS 1M 滑窗实时拒 cos>0.95 | ⏳ v0.2 |
 
 ---
 
-## 4 · Incepedia 生成 pipeline(待实现)
+## 4 · Incepedia 生成 pipeline · P2 规范版
+
+完整管线见 `docs/codenames-cheatsheet.md §4` 的剖面图。下面是分段概述。
+
+### 4.1 一次性数据准备(W1)
+
+- **seed 层**(⑤):`scripts/prepare_seeds.py` 从本地 FineWeb-Edu dedup(72 GB)+ HF Wikipedia + HF arXiv full-text + OpenStax CC + Stack-Edu 采样 300–800 token 段落,按 edu-score 加权,落到 `data/seeds/*.parquet`
+- **topic 层**:`scripts/build_topic_tree.py` 合并 BISAC 34k + Wikipedia category 2 层(~50k)+ arXiv subject + **MMLU 57 subject 反向锚点**(不使用原题文,只对齐主题),产 `configs/topics.yaml` ~90k topic
+- **persona 层**(⑥):`scripts/import_persona_hub.py` 从 HF `tencent-ailab/persona-hub` 200k 里 LLM 过滤到 **10k 均匀子集**,落 `configs/personas.yaml`
+- **配方层**:`configs/batches/v0.1_pilot.yaml`(C12 批次声明)+ `configs/generators.yaml`(ADR 0003)+ `configs/disallowed_openings.yaml`(C14,手工种 30 条,W3–W5 自动扩)
+
+### 4.2 每条样本的实时流水线(W2–W5)
+
+**9 维度 PromptAssembler**:`seed_source × seed_text × topic × persona × difficulty × structure × path × generator_tier × anti_mono_constraints`
 
 ```
- topics.yaml   ──┐
- personas.yaml ──┼→ PromptAssembler ─→ prompt(seed + persona + difficulty + audience + anti-repetition)
- web seeds     ──┤                          │
- RAG retriever ──┘                          │
-                                            ▼
-                       Router (by task tier, weighted, configs/generators.yaml)
-                            │
-                   midtier_bulk · frontier_reasoning · critic
-                            │
-                            ▼
-                OpenRouter Async Client(httpx + aiolimiter + tenacity)
-                            │
-                            ▼
-           Raw completion + metadata
-                            │
-                ┌───────────┴──────────┐
-                ▼                      ▼
-          (optional) Critic round   pass-through
-           (C10: STEM/code only)
-                │
-                └───────────┬──────────┘
-                            ▼
-         Boilerplate cleanup + sanity filter
-         (length / language / refusal / opening pattern — C14)
-                            │
-                            ▼
-            Parquet shard writer (10M tokens / shard)
-                            │
-                            ▼
-           data/raw_generations/batch_{YYYYMMDD}_{tag}/
-                            │
-                            ▼
-         Rolling stats: cost / speed / diversity / opening-pattern audit
-                            │
-                            ▼
-                Event: sync_to_nas.sh gen <batch_id>
+PromptAssembler
+    → Router(ADR 0003,②:frontier 占比 50%)
+    → OpenRouter AsyncClient(C5/C6,双 key)
+    → Best-of-N(③:midtier=1 / frontier=2 / STEM-expert=3)
+    → Critic loop(C10/④:50% 覆盖 × 最多 2 轮,score<4 必改)
+    → Post-filter(语言 / 长度 / 拒答 / 首句 ∉ disallowed_openings C14)
+    → Quality classifier(fineweb-edu-classifier score ≥ 3)
+    → 批内 embed dup check(BGE-small 10k 滚动,cos>0.95 拒)
+    → Writer(C7:1000 条 Parquet + 原子重命名)
+    → Audit(C8 cost / 成功率 / dup;C14 首句 top-20 回写;C9 偏差 >20% 暂停)
+    → data/raw_generations/batch_<id>/*.parquet
+    → sync_to_nas.sh gen <batch_id>(事件驱动)
 ```
+
+### 4.3 批量后处理 & tokenize(W6)
+
+`scripts/dedup_and_filter.py` 四阶段:
+
+1. MinHash dedup(n-gram=5,threshold=0.7,datatrove)—— 对齐 Cosmopedia 参数
+2. Embed dedup(BGE-small-en-v1.5,cos>0.92)—— 超越点
+3. Classifier filter 复核(edu-score ≥ 3)
+4. Decontamination(10-gram + 0.5 ratio,覆盖 MMLU / MMLU-Pro / GSM8k / MATH / HumanEval / MBPP)
+
+→ `scripts/tokenize_dataset.py` → `data/datasets/incepedia_v01_qwen/*.ds`(datatrove → nanotron shard)
+
+### 4.4 下游训练单元(W6 收尾)
+
+- **E2**(主打,G4 门):`exp_inc_v01_qwen3_seed{42,1337}` × Track 1 × 30B × 2 seeds
+- **E3**(epoch 控制):`exp_ctrl_cosmo_v2_subset3B_qwen3_seed42` × Track 1 × 30B × 1 seed(Cosmopedia v2 随机 3B subset × 10 epoch)
+- **E5**(epoch 扫描,事后可选):`exp_inc_v01_qwen3_ep{1,3,10}`
+- **A1 / A2 / A5 / A6 / A8 / A10**(6 条重生成 ablation):每条各生成 2B uniq,挂 Track 2 cooldown-fork,~$40–60k + 15 天 GPU
+
+详细代号映射与 G1–G4 门控规则见 `docs/codenames-cheatsheet.md`。
 
 ---
 

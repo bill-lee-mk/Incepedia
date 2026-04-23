@@ -38,7 +38,9 @@
 | **Tokenized · Cosmopedia v2(Mistral)** | ✅ | 31.5B tokens / ~60 GiB |
 | **Tokenized · FineWeb-Edu(Mistral)** | ✅ | 29B tokens / ~55 GiB |
 | **flash-attn** | ✅ | 已装 |
-| 合成 pipeline(OpenRouter 路由) | ⏳ | P2 前完成 |
+| 合成 pipeline(OpenRouter 路由) | ⏳ | **P2 规范化完成**(见 `docs/codenames-cheatsheet.md §4`),W1 基建待 R1/R2 结束后开工 |
+| **P2 代号族固化** | ✅ | E1–E5 / A1–A10 / G1–G4 / W1–W6 / ①–⑨ 全部进 `codenames-cheatsheet.md` |
+| **P2 质量升级 ①–⑦** | ✅ 方案定稿 | 10B uniq / frontier 50% / Best-of-N / critic 50%×2 / 多源 seed / 10k persona / 20 结构;⑧⑨ 留 v0.2 |
 
 ---
 
@@ -129,3 +131,4 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 | 2026-04-21 ~11:30 UTC | **T1-T4 四条 TODO 全部落地**:FA3 switch(`NANOTRON_USE_FA3=1`,默认 OFF;ADR 0008;patch 留档)、Aim sidecar 接入 orchestrator、bootstrap 自动 apply patches + 装 grouped_gemm/pybind11、`scripts/lint_nanotron_yaml.py`(35 非默认字段全 allow-listed) |
 | 2026-04-22 08:00 UTC | **R1 seed42 30B 启动**(launcher batch_accum bug 已修;FRESH_START 跳过 1.5B-era 旧 ckpt;auto-resume 兜底;ETA ~45h) |
 | 2026-04-23 02:30 UTC | **R1 进度 40%**(iter 9111/22888,11.9B/30B,lm_loss 1.43,281 TFLOPs/GPU,28% MFU);**TODO T5 登记**(seed42 跑完后做 nanotron→Aim 直连,告别 sidecar 临时妥协) |
+| 2026-04-23 19:00 UTC | **P2 生成管线规范化**:新增 `docs/codenames-cheatsheet.md § 2.4–2.8` 五个代号族(①–⑨ / E1–E5 / A1–A10 / G1–G4 / W1–W6),新增 §4 生成管线剖面图;`methodology.md` 增补 §3.4(P2 质量升级表)与 §4 P2 规范版;**P2 方案定稿**(10B uniq / frontier 50% / Best-of-N / critic 50%×2 / 多源 seed / 10k persona / 20 结构);批准 E3 控制实验 + 6 条重生成 ablation(A1/A2/A5/A6/A8/A10)+ G3 无条件进 G4 规则;W1 待 R1/R2 结束后开工 |
