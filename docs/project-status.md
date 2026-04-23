@@ -104,6 +104,7 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 | T2 | nanotron → Aim metrics 桥接 | ✅ **实现完成**(orchestrator 自动拉起 `scripts/tail_train_log_to_aim.py` 侧车,每实验独立 Aim Run) | 正式 nanotron 侧原生桥接待上游实现,目前用 log-tail 方式,已足够画曲线 |
 | T3 | 三条本地 nanotron patch 写进 `scripts/bootstrap_env.sh` | ✅ **实现完成**(idempotent `git apply --check`,不会重复打) | `patches/nanotron_{rotary_flash_attn28,datatrove09_dataset,consumption_stats_local,fa3_optional_switch}.patch` |
 | T4 | `scripts/lint_nanotron_yaml.py`:launcher YAML vs nanotron 默认值 diff 审计 | ✅ **实现完成**(allow-list 35 项,`exit=0` 当无意外非默认字段) | 每次升级 nanotron / 改 launcher 的 PR 内必跑 |
+| **T5** | **替换 sidecar 为 nanotron 直连 Aim/W&B**(在 nanotron `train_step_logs()` 末尾加 ~10 行 `aim.Run.track()` 或 `wandb.log()`,实时无延迟无解析) | 🟡 **待办** — **R1 seed42 跑完后立即做** | 当前 sidecar 是临时妥协(tail train.log → 解析正则 → push Aim);直连后:1) 0 延迟 2) metric 名称由 nanotron 决定不会漂 3) 跨实验对比更稳。工程量 ~30 min `git apply patches/nanotron_aim_direct.patch` + 测试 |
 
 ---
 
@@ -126,3 +127,5 @@ bash scripts/sync_to_nas.sh dataset fineweb_edu_backbone
 | 2026-04-21 10:25 UTC | **seed42 正式开跑**:8×H100、~65K tok/s、~99 TFLOPs/GPU、ETA ≈ 6h20m;路上修了 8 个兼容性坑(nanotron 入口 / YAML schema / vocab / rotary-FA28 / datatrove09 / consumption_stats / ZeRO-0 / grouped_gemm+pybind11),3 条 nanotron 本地 patch 放在 `patches/`;登记 TODO T1 FA3 接入 |
 | 2026-04-21 ~10:50 UTC | **py-spy 定位慢路径**:`ignore_sanity_checks=False` 让每步调一次 `torch.testing.assert_close` 跨 rank → ~50% 吞吐损失。修回默认 True(commit `d7d0059`) |
 | 2026-04-21 ~11:30 UTC | **T1-T4 四条 TODO 全部落地**:FA3 switch(`NANOTRON_USE_FA3=1`,默认 OFF;ADR 0008;patch 留档)、Aim sidecar 接入 orchestrator、bootstrap 自动 apply patches + 装 grouped_gemm/pybind11、`scripts/lint_nanotron_yaml.py`(35 非默认字段全 allow-listed) |
+| 2026-04-22 08:00 UTC | **R1 seed42 30B 启动**(launcher batch_accum bug 已修;FRESH_START 跳过 1.5B-era 旧 ckpt;auto-resume 兜底;ETA ~45h) |
+| 2026-04-23 02:30 UTC | **R1 进度 40%**(iter 9111/22888,11.9B/30B,lm_loss 1.43,281 TFLOPs/GPU,28% MFU);**TODO T5 登记**(seed42 跑完后做 nanotron→Aim 直连,告别 sidecar 临时妥协) |
