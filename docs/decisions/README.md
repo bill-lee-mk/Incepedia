@@ -32,3 +32,4 @@ Copy `TEMPLATE.md`, name it `NNNN-short-slug.md` where `NNNN` is the next 4-digi
 | [0006](./0006-evaluation-stack-policy.md) | Evaluation stack policy — pin to lighteval latest | accepted |
 | [0007](./0007-dual-protocol-architecture.md) | Dual-protocol architecture — Llama2-1.82B (anchor) + Qwen3-1.7B (working) | accepted |
 | [0008](./0008-flash-attn-3-optional.md) | FlashAttention-3 optional backend behind `NANOTRON_USE_FA3=1` (default OFF) | accepted (implementation landed) |
+| [0009](./0009-nanotron-to-hf-conversion.md) | Always materialise an HF-format ckpt before evaluation / publishing | accepted (implementation landed) |
