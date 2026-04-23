@@ -216,12 +216,22 @@ PromptAssembler
 
 → `scripts/tokenize_dataset.py` → `data/datasets/incepedia_v01_qwen/*.ds`(datatrove → nanotron shard)
 
-### 4.4 下游训练单元(W6 收尾)
+### 4.4 下游训练单元(W6 收尾)—— **两阶段 E 设计**
 
-- **E2**(主打,G4 门):`exp_inc_v01_qwen3_seed{42,1337}` × Track 1 × 30B × 2 seeds
-- **E3**(epoch 控制):`exp_ctrl_cosmo_v2_subset3B_qwen3_seed42` × Track 1 × 30B × 1 seed(Cosmopedia v2 随机 3B subset × 10 epoch)
+**阶段 1 · A11 ratio scan**(Track 2 cooldown-fork,seed42,~1.1 天):
+- `fork_inc_v01_ratio{100,50,30}_qwen3_seed42`:10B uniq Incepedia 分别以 100% / 50% / 30% 比例与 FineWeb-Edu-HQ 混合,各跑 6B cooldown
+- **目的**:挑出 30% 和 50% 中在 cooldown 分数更高的一档,作为 E2-mix 的 ratio
+- **依据**:Kang et al. 2025 报 ~30% 合成最优,FinePhrase 用 50% 为主;两档都值得测,但 Track 1 只跑最优档省 GPU
+
+**阶段 2 · Track 1 决定性训练**(W6 末,~8 天):
+- **E2-100**(野心叙事 / 独立 corpus):`exp_inc_v01_100_qwen3_seed{42,1337}` × 30B × 2 seeds
+- **E2-mix**(SOTA 可比 / 最优 mix ratio):`exp_inc_v01_mix{best}_qwen3_seed{42,1337}` × 30B × 2 seeds,mix-in 默认 FineWeb-Edu-HQ(若 DCLM 在 W3-W5 后台 tokenize 完成则切 DCLM)
+- **E3**(epoch 控制):`exp_ctrl_cosmo_v2_subset3B_qwen3_seed42` × 30B × 1 seed(Cosmopedia v2 随机 3B subset × 10 epoch)
 - **E5**(epoch 扫描,事后可选):`exp_inc_v01_qwen3_ep{1,3,10}`
-- **A1 / A2 / A5 / A6 / A8 / A10**(6 条重生成 ablation):每条各生成 2B uniq,挂 Track 2 cooldown-fork,~$40–60k + 15 天 GPU
+
+**并行 · Track 2 ablation 族**(~15 天 GPU,与 Track 1 错峰):
+- **A1 / A2 / A5 / A6 / A8 / A10**:6 条重生成 ablation,每条各生成 2B uniq,挂 Track 2 cooldown-fork,~$40–60k
+- **A3 / A4 / A7 / A9**:post-filter 模拟,无需重生成
 
 详细代号映射与 G1–G4 门控规则见 `docs/codenames-cheatsheet.md`。
 
