@@ -41,17 +41,24 @@ class DatasetSpec(BaseModel):
 
 
 class ModelSpec(BaseModel):
-    """Architecture spec. See ADR 0007 for the dual-protocol decision.
+    """Architecture spec. See ADR 0007 for the multi-protocol decision.
 
     - `llama2-1.82B`: Protocol A (reference anchor), aligns with
       Cosmopedia/SmolLM/FineWeb published numbers.
     - `qwen3-1.7B`: Protocol B (working architecture), modern + GQA + Qwen RoPE.
+    - `qwen2style-1.7B-finephrase`: Protocol C (FinePhrase replication),
+      28-layer Qwen2-style + Llama-3.2 tokenizer to enable direct curve
+      comparison with the FinePhrase paper's Figure 1 (see ADR 0007).
 
-    Tokenizer is fixed across both architectures (`mistralai/Mistral-7B-v0.1`)
-    so that the only variable between protocols is the architecture itself.
+    Tokenizer is per-protocol now (was originally shared, but Protocol C
+    needs Llama-3.2 to match FinePhrase exactly).
     """
 
-    arch: Literal["llama2-1.82B", "qwen3-1.7B"] = "llama2-1.82B"
+    arch: Literal[
+        "llama2-1.82B",
+        "qwen3-1.7B",
+        "qwen2style-1.7B-finephrase",
+    ] = "llama2-1.82B"
     seq_len: int = 2048
     tokenizer: str = "mistralai/Mistral-7B-v0.1"
     vocab_size: int = 32000

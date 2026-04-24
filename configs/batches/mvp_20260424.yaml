@@ -1,0 +1,50 @@
+# Incepedia MVP batch · 1B uniq token
+# Status: P2 rapid validation (not the P2 production batch)
+# Purpose: fastest path to first synthetic-vs-Cosmopedia signal
+# See: docs/codenames-cheatsheet.md, docs/methodology.md §4
+#
+# Design choices (intentionally minimal for speed):
+#   - 1 model (DeepSeek-V3 via OpenRouter, frontier-class quality, $1.10/M output)
+#   - 1 prompt (tutorial — FinePhrase-validated winner)
+#   - 1 seed source (FineWeb-Edu local, edu-score≥3, 300–2000 tok)
+#   - no persona injection (C2 deferred)
+#   - no Best-of-N (③ deferred)
+#   - no critic (C10/④ deferred)
+#   - no embed dedup at gen time (⑨ deferred)
+
+batch_id: mvp_20260424
+purpose: "MVP · 1B uniq token via OpenRouter DeepSeek-V3, single tutorial prompt"
+
+seeds_path: data/seeds/mvp_seeds.parquet
+output_dir: data/raw_generations
+
+# Model (OpenRouter id) — selected by scripts/benchmark_concurrency.py
+model: google/gemini-2.5-flash
+# benchmark result (2026-04-23, 60-request runs):
+#   google/gemini-2.5-flash   conc= 64  → 6743 tok/s   ← chosen
+#   google/gemini-2.5-flash   conc=256  → 7016 tok/s   (marginal gain)
+#   anthropic/claude-3.5-haiku conc=128 → 2134 tok/s
+#   openai/gpt-4o-mini        conc=128  → 2263 tok/s
+#   deepseek/deepseek-chat:nitro conc=32 → 595 tok/s   (429 at conc=64)
+
+prompt: tutorial              # file at src/incepedia/generation/prompts/tutorial.txt
+
+# Target budget: all 552,834 FineWeb-Edu seeds (edu>=3, 300-2000 tok)
+# At ~800 out/seed avg → ~442M uniq output tokens
+max_requests: 600_000         # slightly above seeds count in case we expand
+max_cost_usd: 1500.0          # safety circuit breaker; realistic spend ~$1100
+
+# Concurrency (benchmark-optimal for Gemini 2.5 Flash)
+concurrency: 64
+
+# Generation params
+max_tokens: 2000              # slightly below test value (2500) to control cost; covers 95% of rephrases
+temperature: 0.7
+top_p: 0.95
+timeout_s: 180                # hard per-request timeout
+
+# Retry policy
+max_retries: 10               # longer run → more retries for transient 5xx / network
+
+# Shard writing (C7)
+shard_rows: 1000

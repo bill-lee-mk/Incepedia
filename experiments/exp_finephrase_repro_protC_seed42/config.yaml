@@ -1,0 +1,70 @@
+# 策略 B · FinePhrase Figure 1 reproduction (orange line)
+#
+# Goal: train Protocol C (Qwen2-style 1.7B + Llama-3.2 tokenizer) from-scratch
+# × 21B tokens × (FinePhrase_table 50% + FineWeb-Edu-HQ 50%) and produce a
+# downstream-eval curve that matches the FinePhrase paper's "FinePhrase (table)"
+# orange line in Figure 1 (within ±0.5pp at 21B).
+#
+# This is the SANITY CHECK before we swap FinePhrase data for Incepedia v0.2
+# (策略 C). If our curve here aligns with the published one, the Protocol C
+# pipeline is validated and any deviation in 策略 C is attributable to the
+# Incepedia data itself.
+#
+# Mix-in choice: We use FineWeb-Edu-HQ instead of DCLM (FinePhrase's choice)
+# because: (1) we already have FW-Edu-HQ on disk, (2) FinePhrase paper §3.x
+# reports DCLM and FW-Edu-HQ within 0.1pp on HQ-source data, well inside our
+# noise floor.
+#
+# Expected runtime: ~36-50 hours on 8×H100 (10000 steps × ~13s/step at seq=4096)
+
+exp_id: exp_finephrase_repro_protC_seed42
+stage: P1
+track: 1                # Track 1 standalone (from-scratch)
+branch_from: null
+
+dataset:
+  id: finephrase_table_plus_fwedu_hq_llama32
+  # Mixed dataset — populated by scripts/tokenize_protocol_c.py with 50/50 split
+  # of (FinePhrase table) + (FineWeb-Edu-HQ), both Llama-3.2 tokenized.
+  path: data/datasets/finephrase_table_plus_fwedu_hq_llama32/mixed
+  tokens: 21_000_000_000
+  notes: >
+    50% FinePhrase table (~10.5B output tokens, sampled from
+    HuggingFaceFW/finephrase config=table) +
+    50% FineWeb-Edu-HQ (~10.5B tokens, int_score>=3 partition of
+    HuggingFaceFW/fineweb-edu-dedup).
+    Both Llama-3.2 tokenized with `meta-llama/Llama-3.2-1B`.
+
+model:
+  arch: qwen2style-1.7B-finephrase
+  seq_len: 4096                     # FinePhrase paper §Appendix
+  tokenizer: hynky/Llama-3.2-1B-no-bos   # FinePhrase's exact tokenizer (Llama-3.2, no-bos variant; public)
+  vocab_size: 128256                # = 128_000 base + 256 special
+  init_from: null
+
+training:
+  train_tokens: 21_000_000_000      # = 10000 steps × 2.1M tok/step
+  global_batch_tokens: 2_097_152    # 512 sequences × 4096 tokens (FinePhrase)
+  micro_batch_size: 2               # → grad_accum = 2.1M / (2×4096×8) = 32; mbs=4 OOMs cross-entropy on vocab=128k logits buffer
+  seed: 42
+  mixed_precision: bf16
+  gradient_clip: 1.0
+  weight_decay: 0.1
+  schedule:
+    scheduler: trapezoidal          # = WSD (warmup-stable-decay) per FinePhrase
+    lr_max: 5.0e-4                  # FinePhrase peak LR
+    lr_min: 5.0e-5                  # FinePhrase min decay LR (NOT 0)
+    warmup_tokens: 209_715_200      # 100 steps × 2.1M (= 1% of 21B)
+    stable_tokens: 18_664_550_400   # 8900 steps × 2.1M (= 89% of 21B)
+    cooldown_tokens: 2_097_152_000  # 1000 steps × 2.1M (= 10% of 21B)
+
+eval:
+  task_group: cosmopedia-full       # TODO: add `finephrase_12` task group (12 benchmarks × 3-shot)
+  max_samples: null                 # full eval
+  eval_every_tokens: 2_000_000_000  # eval every 2B for the curve
+  final_eval: true
+
+notes: |
+  策略 B FinePhrase reproduction (sanity check Protocol C pipeline).
+  Mix-in is FineWeb-Edu-HQ (not DCLM) — see config docstring.
+  See docs/codenames-cheatsheet.md §3.5.1 (v0.2 conservative recipe context).

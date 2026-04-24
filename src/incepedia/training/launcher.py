@@ -55,12 +55,19 @@ LLAMA2_182B_SPEC = dict(
 # QKV bias; ~1.64B params; uses nanotron's built-in Qwen2Config via the
 # `is_qwen2_config: True` flag. See src/incepedia/training/nanotron_qwen.py).
 from incepedia.training.nanotron_qwen import QWEN3_17B_SPEC as _QWEN3_SPEC  # noqa: E402
+from incepedia.training.nanotron_qwen import QWEN2STYLE_17B_FINEPHRASE_SPEC as _QWEN2STYLE_SPEC  # noqa: E402
 
 QWEN3_17B_SPEC = dict(_QWEN3_SPEC)  # local copy so launcher is self-contained when read
+
+# Protocol C · Qwen2-style 1.7B + Llama-3.2 tokenizer (FinePhrase paper, ADR 0007)
+# Same family as Protocol B (Qwen2 model class) but different hyperparams &
+# tokenizer to enable direct reproduction of FinePhrase Figure 1 curves.
+QWEN2STYLE_17B_FINEPHRASE_SPEC = dict(_QWEN2STYLE_SPEC)
 
 ARCHITECTURE_SPECS: dict[str, dict] = {
     "llama2-1.82B": LLAMA2_182B_SPEC,
     "qwen3-1.7B": QWEN3_17B_SPEC,
+    "qwen2style-1.7B-finephrase": QWEN2STYLE_17B_FINEPHRASE_SPEC,
 }
 
 # vocab_size defaults per architecture (when config.yaml doesn't set it).
@@ -71,6 +78,7 @@ ARCHITECTURE_SPECS: dict[str, dict] = {
 VOCAB_DEFAULTS: dict[str, int] = {
     "llama2-1.82B": 32000,   # Mistral tokenizer
     "qwen3-1.7B": 151665,    # Qwen/Qwen2.5-1.5B tokenizer: len(get_vocab()) = 151665
+    "qwen2style-1.7B-finephrase": 128256,  # Llama-3.2 tokenizer (FinePhrase paper)
 }
 
 # back-compat alias for any existing import sites
