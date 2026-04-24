@@ -23,17 +23,22 @@ track: 1                # Track 1 standalone (from-scratch)
 branch_from: null
 
 dataset:
-  id: finephrase_table_plus_fwedu_hq_llama32
-  # Mixed dataset — populated by scripts/tokenize_protocol_c.py with 50/50 split
-  # of (FinePhrase table) + (FineWeb-Edu-HQ), both Llama-3.2 tokenized.
-  path: data/datasets/finephrase_table_plus_fwedu_hq_llama32/mixed
+  id: finephrase_table_plus_fwedu_hq_llama32_5050
+  # MULTI-SOURCE WEIGHTED MIX: nanotron's NanosetDatasetsArgs supports
+  # dataset_folder=List[str] + dataset_weights=List[float] for exact
+  # proportional sampling. Our launcher reads "::"-separated paths with
+  # optional "@<weight>" suffix and renders to that schema.
+  #
+  # 50% FinePhrase table + 50% FineWeb-Edu-HQ — exactly matches FinePhrase
+  # paper's default mix ratio (vs prior single-folder symlink approach
+  # which produced uneven 36/64 mix at our token budgets).
+  path: data/datasets/finephrase_table_plus_fwedu_hq_llama32/finephrase@0.5::data/datasets/finephrase_table_plus_fwedu_hq_llama32/fineweb_edu_hq@0.5
   tokens: 21_000_000_000
   notes: >
-    50% FinePhrase table (~10.5B output tokens, sampled from
-    HuggingFaceFW/finephrase config=table) +
-    50% FineWeb-Edu-HQ (~10.5B tokens, int_score>=3 partition of
-    HuggingFaceFW/fineweb-edu-dedup).
-    Both Llama-3.2 tokenized with `meta-llama/Llama-3.2-1B`.
+    50% FinePhrase table (HuggingFaceFW/finephrase config=table, 12 prefix
+    groups = ~7-10B uniq tokens) + 50% FineWeb-Edu-HQ (~6-8B uniq, int_score>=3
+    partition of HuggingFaceFW/fineweb-edu CC-MAIN-2024-10).
+    Both Llama-3.2 tokenized with hynky/Llama-3.2-1B-no-bos.
 
 model:
   arch: qwen2style-1.7B-finephrase

@@ -132,14 +132,52 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
         )
     grad_accum = t.global_batch_tokens // tokens_per_microstep
 
-    # Resolve the tokenized dataset folder.  Config holds a relative path;
-    # nanotron needs an absolute path to the directory that contains the
-    # datatrove `.ds`/`.ds.index`/`.ds.metadata` shards.
-    dataset_folder = Path(cfg.dataset.path)
-    if not dataset_folder.is_absolute():
-        dataset_folder = REPO_ROOT / dataset_folder
-    if (dataset_folder / "tokenized").is_dir():
-        dataset_folder = dataset_folder / "tokenized"
+    # Resolve the tokenized dataset folder.  Two modes:
+    #
+    #  Mode 1 (single-source): cfg.dataset.path is a single directory string
+    #      → dataset_folder rendered as a single string. Equal-mix sampling
+    #        across whatever shards are inside.
+    #
+    #  Mode 2 (multi-source weighted, e.g. for FinePhrase replication):
+    #      cfg.dataset.path is a "::"-separated list, optionally with weights
+    #      via "@", e.g.
+    #
+    #          "data/datasets/A@0.5::data/datasets/B@0.5"
+    #
+    #      → renders as `dataset_folder: [A_abs, B_abs]` plus
+    #         `dataset_weights: [0.5, 0.5]`. Nanotron's NanosetDatasetsArgs
+    #         consumes the proportional mix exactly.
+    raw_path = str(cfg.dataset.path)
+    if "::" in raw_path:
+        # Multi-source mode
+        parts = raw_path.split("::")
+        dataset_folders: list[str] = []
+        dataset_weights: list[float] = []
+        for p in parts:
+            if "@" in p:
+                folder, weight = p.split("@", 1)
+                dataset_weights.append(float(weight))
+            else:
+                folder = p
+                dataset_weights.append(1.0)
+            f = Path(folder)
+            if not f.is_absolute():
+                f = REPO_ROOT / f
+            if (f / "tokenized").is_dir():
+                f = f / "tokenized"
+            dataset_folders.append(str(f))
+        # If any explicit weight given, all must be explicit (validated by user)
+        dataset_folder_render: str | list[str] = dataset_folders
+        dataset_weights_render: list[float] | None = dataset_weights
+    else:
+        # Single-source mode (back-compat)
+        dataset_folder_path = Path(raw_path)
+        if not dataset_folder_path.is_absolute():
+            dataset_folder_path = REPO_ROOT / dataset_folder_path
+        if (dataset_folder_path / "tokenized").is_dir():
+            dataset_folder_path = dataset_folder_path / "tokenized"
+        dataset_folder_render = str(dataset_folder_path)
+        dataset_weights_render = None
 
     # ── Auto-resume checkpoint resolution ──
     # Priority:
@@ -266,7 +304,12 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
                 "start_training_step": 1,
                 "data": {
                     "dataset": {
-                        "dataset_folder": str(dataset_folder),
+                        "dataset_folder": dataset_folder_render,
+                        **(
+                            {"dataset_weights": dataset_weights_render}
+                            if dataset_weights_render is not None
+                            else {}
+                        ),
                     },
                     "num_loading_workers": 4,
                     "seed": t.seed,
