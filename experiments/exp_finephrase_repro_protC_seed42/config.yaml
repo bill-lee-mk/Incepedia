@@ -55,6 +55,7 @@ training:
   mixed_precision: bf16
   gradient_clip: 1.0
   weight_decay: 0.1
+  checkpoint_interval: 500          # ~21 ckpts (steps 500/1000/.../10000 + final 10013) → matches FinePhrase Figure 1 dot density (~22 points / 1B tokens each)
   schedule:
     scheduler: trapezoidal          # = WSD (warmup-stable-decay) per FinePhrase
     lr_max: 5.0e-4                  # FinePhrase peak LR

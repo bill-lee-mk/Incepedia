@@ -235,7 +235,14 @@ def build_nanotron_yaml(cfg: ExperimentConfig) -> dict:
             "ignore_sanity_checks": True,
         },
         "checkpoints": {
-            "checkpoint_interval": max(2000, steps_train // 20),  # ~20 checkpoints per run
+            # Honour cfg.training.checkpoint_interval if explicitly set;
+            # otherwise fall back to the legacy max(2000, steps_train // 20)
+            # heuristic. Setting 500 for ~21 ckpts is the "FinePhrase Figure 1
+            # reproduction density" (~22 dots in their plot).
+            "checkpoint_interval": (
+                int(t.checkpoint_interval) if t.checkpoint_interval
+                else max(2000, steps_train // 20)
+            ),
             "checkpoints_path": str(cfg.exp_dir / "ckpt"),
             "checkpoints_path_is_shared_file_system": False,
             # See auto-resume block above for how this value is populated.

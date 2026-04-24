@@ -85,6 +85,11 @@ class TrainingSpec(BaseModel):
     mixed_precision: Literal["bf16", "fp16"] = "bf16"
     gradient_clip: float = 1.0
     weight_decay: float = 0.1
+    # Checkpoint save frequency (in nanotron steps). If None, the launcher
+    # uses max(2000, steps_train // 20) which yields ~5 ckpts at 21B-budget
+    # runs. Override to 500 for FinePhrase Figure 1 reproduction (~21 ckpts)
+    # or any other curve density needed.
+    checkpoint_interval: int | None = None
     schedule: ScheduleSpec
 
 
