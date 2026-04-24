@@ -91,6 +91,7 @@ class TrainingSpec(BaseModel):
 class EvalSpec(BaseModel):
     task_group: Literal[
         "cosmopedia-full",
+        "finephrase-12",        # FinePhrase paper Figure 1 alignment
         "early-signal",
         "math",
         "csr-only",

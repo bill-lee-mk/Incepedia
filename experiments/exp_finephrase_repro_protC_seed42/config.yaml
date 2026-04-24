@@ -64,9 +64,9 @@ training:
     cooldown_tokens: 2_097_152_000  # 1000 steps × 2.1M (= 10% of 21B)
 
 eval:
-  task_group: cosmopedia-full       # TODO: add `finephrase_12` task group (12 benchmarks × 3-shot)
+  task_group: finephrase-12         # 12 benchmarks × 3-shot, mirrors FinePhrase paper Fig 1
   max_samples: null                 # full eval
-  eval_every_tokens: 2_000_000_000  # eval every 2B for the curve
+  eval_every_tokens: 2_000_000_000  # eval every 2B for the curve (used by eval_all_ckpts.py)
   final_eval: true
 
 notes: |

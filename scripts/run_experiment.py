@@ -169,6 +169,28 @@ def run_pipeline(cfg: ExperimentConfig, *, eval_only: bool, dry_run: bool) -> in
         )
         print(f"[orchestrator] eval done — {len(scores)} scores")
 
+    # 3.5. Eval all intermediate ckpts → produces eval_curve/curve.json
+    # (only when training was just done — skip on --eval-only since the user
+    # likely just wants final-ckpt eval).  Single-shot smoke for the latest
+    # ckpt is already covered by step 3 above.
+    #
+    # We skip the FINAL ckpt here because step 3 above already evaluated it.
+    # The output goes to experiments/<exp>/eval_curve/step_<NNNNN>/metrics.json,
+    # plus a combined curve.json for plot_figure1_overlay.py to consume.
+    if not eval_only and not dry_run:
+        rc = _run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "eval_all_ckpts.py"),
+                "--config", str(cfg.exp_dir / "config.yaml"),
+                "--skip-final",
+            ],
+            "eval all intermediate ckpts (training-progression curve)",
+        )
+        if rc != 0:
+            print(f"[orchestrator] eval_all_ckpts returned {rc} (non-fatal; final eval still recorded)",
+                  file=sys.stderr)
+
     # 4. Register in INDEX.parquet
     _run(
         ["python", str(REPO_ROOT / "scripts" / "index_experiment.py"), "add", cfg.exp_id],

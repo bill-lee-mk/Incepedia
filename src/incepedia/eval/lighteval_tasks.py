@@ -525,6 +525,8 @@ MATH_GROUP: str = ",".join(
 TASKS_GROUPS: dict[str, str] = {
     # canonical group — USE THIS for all publication-grade runs
     "cosmopedia-full": COSMOPEDIA_FULL_TASKS,
+    # FinePhrase Figure 1 alignment — see FINEPHRASE_12 block below
+    "finephrase-12": None,  # populated after FINEPHRASE_12_TASKS is defined
     # legacy/debug groups (not for final eval)
     "early-signal": EARLY_SIGNAL_TASKS,
     "math": MATH_GROUP,
@@ -533,9 +535,122 @@ TASKS_GROUPS: dict[str, str] = {
 }
 
 
+# ─── FinePhrase Figure 1 reproduction · 12 benchmarks × 3-shot ─────────
+#
+# Maps directly to the 12 benchmarks evaluated in FinePhrase paper §How We
+# Measure Success and Figure 1 dropdown. We use lighteval's BUILT-IN task
+# names (so the loader auto-discovers them via registry) plus our one
+# custom WikiTableQuestions definition (lighteval ships drop/squad/etc.
+# but not WTQ).
+#
+# Categories from FinePhrase paper:
+#   General Knowledge     : ARC, MMLU Redux
+#   Reading Comprehension : SQuAD v2, DROP
+#   Reasoning             : OpenBookQA, XCSQA
+#   NLU                   : WinoGrande, PIQA, HellaSwag
+#   Math                  : GSM8K
+#   Table Understanding   : WikiTableQuestions, TriviaQA
+#
+# Few-shots: FinePhrase uses 3-shot uniformly across all 12.
+# Aggregate: macro mean of the 12 (== Figure 1 "Aggregate Score (Macro)").
+
+# ── Custom WikiTableQuestions (not in lighteval built-ins) ─────────────
+def wikitablequestions_prompt(line, task_name: str | None = None) -> Doc:
+    """WikiTableQuestions (Pasupat & Liang, 2015): table-grounded QA.
+
+    Stanford NLP dataset on HF: stanfordnlp/wikitablequestions
+    Schema: question, answers (List[str]), table (struct with header + rows).
+    """
+    table = line.get("table", {})
+    headers = table.get("header", []) or []
+    rows = table.get("rows", []) or []
+    # render as markdown table for the LM
+    md_lines = ["| " + " | ".join(str(h) for h in headers) + " |",
+                "|" + "|".join(["---"] * max(len(headers), 1)) + "|"]
+    for r in rows:
+        md_lines.append("| " + " | ".join(str(c) for c in r) + " |")
+    table_md = "\n".join(md_lines)
+
+    answers = line.get("answers") or []
+    if not isinstance(answers, list):
+        answers = [str(answers)]
+    # normalise to strings
+    answers = [str(a) for a in answers]
+    # WTQ accepts any of the gold answers, joined by comma if multiple
+    gold = ", ".join(answers) if answers else ""
+
+    return Doc(
+        task_name=task_name,
+        query=f"Table:\n{table_md}\nQuestion: {line['question']}\nAnswer:",
+        choices=[f" {gold}"],
+        gold_index=0,
+        specific={"golds_no_preprocessing": [answers or [""]]},
+    )
+
+
+WIKITABLEQUESTIONS = LightevalTaskConfig(
+    name="incep_wikitablequestions",
+    prompt_function=wikitablequestions_prompt,
+    hf_repo="Stanford/wikitablequestions",
+    hf_subset="random-split-1",
+    hf_avail_splits=["train", "validation", "test"],
+    evaluation_splits=["validation"],
+    few_shots_split="train",
+    generation_size=80,
+    stop_sequence=["\nQuestion:", "\nTable:", "\n\n"],
+    metrics=[Metrics.exact_match],
+    version=1,
+)
+
+
+# Register WTQ in the global TASKS_TABLE (so lighteval registry sees it
+# when --custom-tasks is loaded).
+TASKS_TABLE = TASKS_TABLE + [WIKITABLEQUESTIONS]
+
+# ── FinePhrase 12 task group ───────────────────────────────────────────
+# 11 use lighteval built-ins + 1 custom (WTQ). All at 3-shot.
+# MMLU Redux is 57 subsets — we average inside _parse_results, so list all.
+_MMLU_REDUX_SUBSETS = (
+    "abstract_algebra anatomy astronomy business_ethics clinical_knowledge "
+    "college_biology college_chemistry college_computer_science college_mathematics "
+    "college_medicine college_physics computer_security conceptual_physics econometrics "
+    "electrical_engineering elementary_mathematics formal_logic global_facts "
+    "high_school_biology high_school_chemistry high_school_computer_science "
+    "high_school_european_history high_school_geography high_school_government_and_politics "
+    "high_school_macroeconomics high_school_mathematics high_school_microeconomics "
+    "high_school_physics high_school_psychology high_school_statistics "
+    "high_school_us_history high_school_world_history human_aging human_sexuality "
+    "international_law jurisprudence logical_fallacies machine_learning management "
+    "marketing medical_genetics miscellaneous moral_disputes moral_scenarios "
+    "nutrition philosophy prehistory professional_accounting professional_law "
+    "professional_medicine professional_psychology public_relations security_studies "
+    "sociology us_foreign_policy virology world_religions"
+).split()
+
+FINEPHRASE_12_TASKS: str = ",".join(
+    # General Knowledge (2)
+    [f"arc:challenge|3", f"arc:easy|3"]
+    + [f"mmlu_redux_2:{s}|3" for s in _MMLU_REDUX_SUBSETS]
+    # Reading Comprehension (2)
+    + ["squad_v2|3", "drop|3"]
+    # Reasoning (2)
+    + ["openbookqa|3", "xcsqa_eng_mcf|3"]
+    # NLU (3)
+    + ["winogrande|3", "piqa|3", "hellaswag|3"]
+    # Math (1)
+    + ["gsm8k|3"]
+    # Table Understanding (2)
+    + ["incep_wikitablequestions|3", "triviaqa|3"]
+)
+
+TASKS_GROUPS["finephrase-12"] = FINEPHRASE_12_TASKS
+
+
 __all__ = [
     "TASKS_TABLE",
     "TASKS_GROUPS",
+    "FINEPHRASE_12_TASKS",
+    "WIKITABLEQUESTIONS",
     "EARLY_SIGNAL_TASKS",
     "MATH_GROUP",
     "COMMON_SENSE_REASONING_TASKS",
