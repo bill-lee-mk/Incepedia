@@ -329,10 +329,11 @@ def main() -> int:
                    help="only eval ckpts whose step is a multiple of this (default: all valid)")
     p.add_argument("--max-samples", type=int, default=None,
                    help="lighteval max_samples cap for fast smoke; default = full")
-    p.add_argument("--parallel-jobs", type=int, default=1,
-                   help="number of concurrent eval workers (default 1 = sequential)")
+    p.add_argument("--parallel-jobs", type=int, default=None,
+                   help="number of concurrent eval workers (default = total_gpus, "
+                        "ie one ckpt per GPU; pass 1 for fully sequential 8-GPU DP)")
     p.add_argument("--gpus-per-job", type=int, default=None,
-                   help="GPUs per worker; auto = total_gpus/parallel_jobs")
+                   help="GPUs per worker; auto = total_gpus/parallel_jobs (default 1)")
     p.add_argument("--probe-strategies", type=str, default=None,
                    help="comma list of NxK strategies to benchmark on FIRST ckpt before "
                         "committing, e.g. '1x8,2x4,4x2,8x1'. Picks the fastest.")
@@ -386,8 +387,13 @@ def main() -> int:
         args.gpus_per_job = winner_k
 
     # ── DISPATCH PHASE ────────────────────────────────────────────────────
-    n_workers = args.parallel_jobs
-    k_per = args.gpus_per_job or (total_gpus // n_workers)
+    # Auto-defaulting rule (when args not given):
+    #   parallel_jobs = total_gpus   (one ckpt per GPU = max parallelism)
+    #   gpus_per_job  = 1            (each ckpt single-GPU evals)
+    # For a 1.7B model this is ~5x faster than 1×8-GPU DP because per-task
+    # lighteval setup overhead dominates compute. Override explicitly if needed.
+    n_workers = args.parallel_jobs if args.parallel_jobs is not None else total_gpus
+    k_per = args.gpus_per_job if args.gpus_per_job is not None else max(1, total_gpus // n_workers)
     if n_workers * k_per > total_gpus:
         print(f"[eval-curve] ERROR: parallel_jobs({n_workers}) × gpus_per_job({k_per}) "
               f"> total_gpus({total_gpus})", file=sys.stderr)
