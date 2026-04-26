@@ -98,7 +98,12 @@ local_eval_ckpt() {
 
     echo "[rolling] running eval (2-way parallel × 1 GPU)..."
     cd "${LOCAL_REPO}"
-    /home/ubuntu/miniconda3/envs/incepedia/bin/python scripts/eval_all_ckpts.py \
+    # Activate conda so `accelerate` / `torchrun` etc. are on PATH for any
+    # subprocesses spawned by EvalRunner (the worker scripts use abs paths
+    # too, but this is belt-and-braces).
+    source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+    conda activate incepedia
+    python scripts/eval_all_ckpts.py \
         --config "experiments/${EXP_ID}/config.yaml" \
         --parallel-jobs 2 \
         --gpus-per-job 1 \

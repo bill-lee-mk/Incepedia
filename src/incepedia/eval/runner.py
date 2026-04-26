@@ -442,16 +442,23 @@ class EvalRunner:
         return driver
 
     def build_command(self, driver_path: Path) -> list[str]:
+        # Use the absolute path to the conda env's `accelerate` / `torchrun`
+        # rather than relying on PATH; subprocesses spawned without an explicit
+        # `source conda activate` (e.g. eval workers under eval_rolling_remote.sh)
+        # inherit the parent's PATH which often does NOT include the env's bin/.
+        env_bin = Path(sys.executable).parent
         if self._is_nanotron_ckpt():
-            # Nanotron's distributed init expects torchrun, not accelerate.
+            torchrun = env_bin / "torchrun"
             return [
-                "torchrun",
+                str(torchrun) if torchrun.is_file() else "torchrun",
                 f"--nproc_per_node={self.num_processes}",
                 f"--master_port={self.main_process_port}",
                 str(driver_path),
             ]
+        accelerate = env_bin / "accelerate"
         return [
-            "accelerate", "launch",
+            str(accelerate) if accelerate.is_file() else "accelerate",
+            "launch",
             f"--num_processes={self.num_processes}",
             f"--main_process_port={self.main_process_port}",
             f"--mixed_precision={self.mixed_precision}",
