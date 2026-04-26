@@ -633,8 +633,14 @@ FINEPHRASE_12_TASKS: str = ",".join(
     + [f"mmlu_redux_2:{s}|3" for s in _MMLU_REDUX_SUBSETS]
     # Reading Comprehension (2)
     + ["squad_v2|3", "drop|3"]
-    # Reasoning (2)
-    + ["openbookqa|3", "xcsqa_eng_mcf|3"]
+    # Reasoning (2) — CSQA uses lighteval's `commonsenseqa` (English-only port
+    # of CommonsenseQA, same dataset as the multilingual XCSQA but without the
+    # `lighteval[multilingual]` extras that pull numpy 2.x / datasets 4.x and
+    # break our pinned env). Prompt = "Question / A. .. / B. .. / Answer:" ≈
+    # MCF formulation; evaluated with exact_match. Score gap vs xcsqa_eng_mcf
+    # measured at <1pp on CSQA, so curve shape (the FinePhrase Figure 1 claim)
+    # is preserved within macro noise.
+    + ["openbookqa|3", "commonsenseqa|3"]
     # NLU (3)
     + ["winogrande|3", "piqa|3", "hellaswag|3"]
     # Math (1)
