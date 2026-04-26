@@ -15,6 +15,7 @@ launcher (standalone vs cooldown-fork vs backbone-only).
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -178,14 +179,23 @@ def run_pipeline(cfg: ExperimentConfig, *, eval_only: bool, dry_run: bool) -> in
     # The output goes to experiments/<exp>/eval_curve/step_<NNNNN>/metrics.json,
     # plus a combined curve.json for plot_figure1_overlay.py to consume.
     if not eval_only and not dry_run:
+        # Default to 8-way parallel × 1 GPU/worker for the curve eval. Reasoning:
+        # 1.7B models trivially fit on 1 H100; per-task lighteval setup overhead
+        # dominates compute for small models, so 8 parallel single-GPU evals
+        # complete ~5× faster than 1 sequential 8-GPU DP eval. Override with
+        # INCEPEDIA_EVAL_PARALLEL_JOBS / INCEPEDIA_EVAL_GPUS_PER_JOB if needed.
+        n_jobs = int(os.environ.get("INCEPEDIA_EVAL_PARALLEL_JOBS", "8"))
+        k_gpus = int(os.environ.get("INCEPEDIA_EVAL_GPUS_PER_JOB", "1"))
         rc = _run(
             [
                 sys.executable,
                 str(REPO_ROOT / "scripts" / "eval_all_ckpts.py"),
                 "--config", str(cfg.exp_dir / "config.yaml"),
                 "--skip-final",
+                "--parallel-jobs", str(n_jobs),
+                "--gpus-per-job", str(k_gpus),
             ],
-            "eval all intermediate ckpts (training-progression curve)",
+            f"eval all intermediate ckpts ({n_jobs}-way × {k_gpus}-GPU parallel curve)",
         )
         if rc != 0:
             print(f"[orchestrator] eval_all_ckpts returned {rc} (non-fatal; final eval still recorded)",
