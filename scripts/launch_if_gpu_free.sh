@@ -109,9 +109,20 @@ while true; do
         continue
     fi
 
-    # All clear: take the lock + break out
+    # All clear: take the lock + verify race-free
     echo "${HOST} ${SELF_PID} $(date -u --iso-8601=seconds)" > "$NAS_LOCK"
-    log "all ${N_REQUIRED} GPUs free + NAS lock acquired; launching training"
+    # Anti-race: virtiofs `> file` is not strictly atomic across hosts; if the
+    # peer was also acquiring at the same instant, last writer wins. Sleep 5s
+    # then re-read; if we're not the lock holder anymore, back off and retry.
+    sleep 5
+    lock_host_after=$(awk '{print $1; exit}' "$NAS_LOCK" 2>/dev/null)
+    lock_pid_after=$(awk '{print $2; exit}' "$NAS_LOCK" 2>/dev/null)
+    if [ "$lock_host_after" != "$HOST" ] || [ "$lock_pid_after" != "$SELF_PID" ]; then
+        log "RACE: peer ${lock_host_after}/${lock_pid_after} won the lock; backing off"
+        sleep "$POLL_SECONDS"
+        continue
+    fi
+    log "all ${N_REQUIRED} GPUs free + NAS lock acquired (race-checked); launching training"
     break
 done
 
