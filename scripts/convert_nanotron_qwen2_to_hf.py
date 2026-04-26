@@ -117,20 +117,29 @@ def convert(src_ckpt: Path, dst_dir: Path) -> None:
 
         # (a) Attention QKV — nanotron packs as a single [q_size + kv + kv, hidden]
         #     matrix in the order [Q rows; K rows; V rows].  Same order for bias.
+        # NOTE: Some Qwen2-family arches (e.g. Protocol C qwen2style-1.7B-finephrase
+        # which mirrors FinePhrase's no-QKV-bias config) omit the qkv bias entirely;
+        # in that case the *bias safetensors file* simply does not exist on disk.
         qkv_w = _read_one(_ckpt_path(layer_root, "attn", "qkv_proj"))
-        qkv_b = _read_one(_ckpt_path(layer_root, "attn", "qkv_proj", suffix="bias"))
         assert qkv_w.shape == (q_size + 2 * kv_size, hidden), \
             f"layer {i} qkv weight shape mismatch: got {tuple(qkv_w.shape)}"
         q_w, k_w, v_w = torch.split(qkv_w, [q_size, kv_size, kv_size], dim=0)
-        q_b, k_b, v_b = torch.split(qkv_b, [q_size, kv_size, kv_size], dim=0)
 
         prefix = f"model.layers.{i}.self_attn"
         state[f"{prefix}.q_proj.weight"] = q_w.contiguous()
         state[f"{prefix}.k_proj.weight"] = k_w.contiguous()
         state[f"{prefix}.v_proj.weight"] = v_w.contiguous()
-        state[f"{prefix}.q_proj.bias"]   = q_b.contiguous()
-        state[f"{prefix}.k_proj.bias"]   = k_b.contiguous()
-        state[f"{prefix}.v_proj.bias"]   = v_b.contiguous()
+
+        qkv_b_path = _ckpt_path(layer_root, "attn", "qkv_proj", suffix="bias")
+        if qkv_b_path.is_file():
+            qkv_b = _read_one(qkv_b_path)
+            q_b, k_b, v_b = torch.split(qkv_b, [q_size, kv_size, kv_size], dim=0)
+            state[f"{prefix}.q_proj.bias"] = q_b.contiguous()
+            state[f"{prefix}.k_proj.bias"] = k_b.contiguous()
+            state[f"{prefix}.v_proj.bias"] = v_b.contiguous()
+        elif i == 0:
+            print(f"[convert] qkv_proj bias file absent (e.g. {qkv_b_path.name}); "
+                  f"emitting bias-free attention (Llama-3.2 / FinePhrase Protocol C)")
 
         # (b) Attention output projection
         state[f"{prefix}.o_proj.weight"] = _read_one(
@@ -180,7 +189,10 @@ def convert(src_ckpt: Path, dst_dir: Path) -> None:
         "rope_theta": arch_json.get("rope_theta", 1_000_000.0),
         # Qwen2 specifics
         "rms_norm_eps": arch_json.get("rms_norm_eps", 1e-6),
-        "attention_bias": True,   # nanotron `attention_bias=True` was used during training
+        # `attention_bias` is True for legacy Qwen2 (qwen3-1.7B family) and
+        # False for FinePhrase Protocol C / Llama-3.2 family. Auto-detect by
+        # checking whether the q_proj.bias key landed in `state`.
+        "attention_bias": "model.layers.0.self_attn.q_proj.bias" in state,
         "tie_word_embeddings": arch_json.get("tie_word_embeddings", False),
         "vocab_size": vocab,
         # Tokenizer ids
