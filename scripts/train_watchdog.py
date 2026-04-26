@@ -193,7 +193,13 @@ def check_one(
         return
 
     # Mode 3: iteration counter not advancing across N polls → kill + relaunch
-    if latest_iter <= state.get("last_iter", -1):
+    # Only applicable to jobs whose logs contain "iteration: N / M" (training).
+    # For eval jobs (rolling eval, etc.) the log has no such counter; in that
+    # case skip Mode 3 entirely and rely on Mode 2 (stale log) for liveness.
+    if latest_iter == -1:
+        # No iteration counter in log; this is an eval-style job → skip Mode 3.
+        state["stagnant_polls"] = 0
+    elif latest_iter <= state.get("last_iter", -1):
         state["stagnant_polls"] = state.get("stagnant_polls", 0) + 1
         if state["stagnant_polls"] >= max_stagnant_polls:
             _alert(state, f"iteration {latest_iter} unchanged across {max_stagnant_polls} polls; killing PID {pid}")
