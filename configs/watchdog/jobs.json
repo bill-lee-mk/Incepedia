@@ -2,10 +2,9 @@
   {
     "name": "protC_train",
     "resume_cmd": [
-      "/home/ubuntu/miniconda3/envs/incepedia/bin/python",
-      "scripts/run_experiment.py",
-      "--config",
-      "experiments/exp_finephrase_repro_protC_seed42/config.yaml"
+      "bash",
+      "-c",
+      "source /home/ubuntu/miniconda3/etc/profile.d/conda.sh && conda activate incepedia && exec python scripts/run_experiment.py --config experiments/exp_finephrase_repro_protC_seed42/config.yaml"
     ],
     "log_path": "logs/detached/protC_train.log",
     "metrics_path": "experiments/exp_finephrase_repro_protC_seed42/metrics.json",
